@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_data_lists.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../profile/domain/user_profile.dart';
 import '../onboarding_controller.dart';
@@ -9,19 +10,6 @@ import '../onboarding_controller.dart';
 /// Step 4: Partner criteria and matching preferences (مواصفات شريك الحياة)
 class Step4PreferencesWidget extends ConsumerWidget {
   const Step4PreferencesWidget({super.key});
-
-  static const List<String> _popularCities = [
-    'القاهرة',
-    'الجيزة',
-    'الإسكندرية',
-    'المنصورة',
-    'طنطا',
-    'الزقازيق',
-    'أسيوط',
-    'سوهاج',
-    'بورسعيد',
-    'الإسماعيلية',
-  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -127,17 +115,34 @@ class Step4PreferencesWidget extends ConsumerWidget {
           SizedBox(height: 24.h),
 
           // Acceptable Cities
-          Text(
-            'المدن والمحافظات المفضلة',
-            style: AppTextStyles.titleSmall.copyWith(
-              color: AppColors.primaryNavy,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'المدن والمحافظات المفضلة',
+                style: AppTextStyles.titleSmall.copyWith(
+                  color: AppColors.primaryNavy,
+                ),
+              ),
+              Text(
+                '(${state.acceptableCities.length} محددة)',
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: AppColors.secondaryPink,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
           SizedBox(height: 10.h),
           Wrap(
             spacing: 8.w,
             runSpacing: 8.h,
-            children: _popularCities.map((city) {
+            children: {
+              ...state.acceptableCities,
+              if (state.residenceCity.isNotEmpty)
+                state.residenceCity,
+              ...AppDataLists.egyptianCities.where((c) => !c.contains('(') && !c.contains('مقيم')),
+            }.map((city) {
               final isSelected = state.acceptableCities.contains(city);
               return FilterChip(
                 label: Text(city),

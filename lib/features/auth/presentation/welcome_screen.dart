@@ -21,36 +21,22 @@ class WelcomeScreen extends StatelessWidget {
             children: [
               const Spacer(),
 
-              // Logo & Animated Icon Container
+              // Logo & Brand Container
               Center(
                 child: Container(
-                  width: 100.r,
-                  height: 100.r,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceWhite,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.primaryBurgundy.withValues(alpha: 0.12),
-                        blurRadius: 28,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                    border: Border.all(
-                      color: AppColors.primaryBurgundy.withValues(alpha: 0.15),
-                      width: 2,
-                    ),
+                  constraints: BoxConstraints(
+                    maxWidth: 200.w,
+                    maxHeight: 180.h,
                   ),
-                  child: Center(
-                    child: Icon(
-                      Icons.favorite_rounded,
-                      color: AppColors.primaryBurgundy,
-                      size: 52.sp,
-                    ),
+                  child: Image.asset(
+                    'assets/images/logo.png',
+                    width: 170.w,
+                    height: 150.h,
+                    fit: BoxFit.contain,
                   ),
                 ),
               ),
-              SizedBox(height: 24.h),
+              SizedBox(height: 16.h),
 
               // Matrimonial Brand Title
               Text(

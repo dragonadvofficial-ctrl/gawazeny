@@ -98,11 +98,25 @@ class OnboardingScreen extends ConsumerWidget {
       final success = await controller.submitOnboarding(userId);
 
       if (!success && context.mounted) {
-        final error = state.errorMessage ?? context.tr('errorGeneric');
+        // Read the LATEST state after async completes
+        final latestState = ref.read(onboardingControllerProvider);
+        final error = latestState.errorMessage ?? context.tr('errorGeneric');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(error),
+            content: Text(
+              error,
+              style: AppTextStyles.bodySmall.copyWith(
+                color: AppColors.surfaceWhite,
+              ),
+            ),
             backgroundColor: AppColors.errorRed,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: context.tr('retry'),
+              textColor: AppColors.surfaceWhite,
+              onPressed: handleSubmit,
+            ),
           ),
         );
       }

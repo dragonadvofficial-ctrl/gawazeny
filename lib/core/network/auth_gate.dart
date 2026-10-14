@@ -65,18 +65,15 @@ class _AuthSplashLoading extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 80.r,
-              height: 80.r,
-              decoration: const BoxDecoration(
-                color: AppColors.lightPink,
-                shape: BoxShape.circle,
+              constraints: BoxConstraints(
+                maxWidth: 180.w,
+                maxHeight: 180.h,
               ),
-              child: Center(
-                child: Icon(
-                  Icons.favorite_rounded,
-                  color: AppColors.secondaryPink,
-                  size: 44.sp,
-                ),
+              child: Image.asset(
+                'assets/images/logo.png',
+                width: 160.w,
+                height: 160.h,
+                fit: BoxFit.contain,
               ),
             ),
             SizedBox(height: 20.h),

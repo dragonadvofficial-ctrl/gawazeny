@@ -481,6 +481,20 @@ USING (
   AND (storage.foldername(name))[1] = auth.uid()::text
 );
 
+-- Allow users to overwrite/update their own profile photos (needed for upsert)
+DROP POLICY IF EXISTS "Users can update their own profile photos" ON storage.objects;
+CREATE POLICY "Users can update their own profile photos"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (
+  bucket_id = 'profile-photos'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+)
+WITH CHECK (
+  bucket_id = 'profile-photos'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
 -- Identity Documents Bucket Policies (Strict Private)
 DROP POLICY IF EXISTS "Users can upload their own identity documents" ON storage.objects;
 CREATE POLICY "Users can upload their own identity documents"

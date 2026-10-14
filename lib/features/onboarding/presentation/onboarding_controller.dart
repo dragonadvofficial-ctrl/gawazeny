@@ -51,7 +51,14 @@ class OnboardingController extends StateNotifier<OnboardingState> {
   }
 
   void setResidenceCity(String value) {
-    state = state.copyWith(residenceCity: value);
+    final updatedCities = List<String>.from(state.acceptableCities);
+    if (value.isNotEmpty && !updatedCities.contains(value)) {
+      updatedCities.add(value);
+    }
+    state = state.copyWith(
+      residenceCity: value,
+      acceptableCities: updatedCities,
+    );
   }
 
   void setMaritalStatus(MaritalStatusType value) {
@@ -137,7 +144,7 @@ class OnboardingController extends StateNotifier<OnboardingState> {
     try {
       String? photoUrl = state.uploadedPhotoUrl;
 
-      // 1. Upload photo if binary is present
+      // 1. Upload photo to storage (file only, no DB record yet)
       if (state.photoBytes != null) {
         final extension = state.photoFileName?.split('.').last ?? 'jpg';
         photoUrl = await _repository.uploadProfilePhoto(
@@ -150,7 +157,7 @@ class OnboardingController extends StateNotifier<OnboardingState> {
 
       final now = DateTime.now();
 
-      // 2. Persist User Profile
+      // 2. Persist User Profile FIRST (creates the FK target for profile_photos)
       final profile = UserProfile(
         id: userId,
         fullName: state.fullName.trim(),
@@ -175,7 +182,19 @@ class OnboardingController extends StateNotifier<OnboardingState> {
       );
       await _repository.saveProfile(profile);
 
-      // 3. Persist Partner Preferences
+      // 3. Save profile photo record AFTER profiles exists (FK constraint satisfied)
+      if (photoUrl != null && photoUrl.isNotEmpty) {
+        try {
+          await _repository.saveProfilePhotoRecord(
+            userId: userId,
+            photoUrl: photoUrl,
+          );
+        } catch (_) {
+          // Non-critical: photo is already uploaded to storage
+        }
+      }
+
+      // 4. Persist Partner Preferences
       final preferences = PartnerPreferences(
         userId: userId,
         minAge: state.minAge,
@@ -194,9 +213,16 @@ class OnboardingController extends StateNotifier<OnboardingState> {
       state = state.copyWith(isSubmitting: false);
       return true;
     } catch (e) {
+      String errorMsg = e.toString();
+      // Provide user-friendly error messages
+      if (errorMsg.contains('403') || errorMsg.contains('Unauthorized')) {
+        errorMsg = 'فشل في حفظ البيانات. يرجى التأكد من تسجيل الدخول وإعادة المحاولة.';
+      } else if (errorMsg.contains('network') || errorMsg.contains('SocketException')) {
+        errorMsg = 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
+      }
       state = state.copyWith(
         isSubmitting: false,
-        errorMessage: e.toString(),
+        errorMessage: errorMsg,
       );
       return false;
     }

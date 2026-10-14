@@ -108,7 +108,7 @@ class _Step1BasicsWidgetState extends ConsumerState<Step1BasicsWidget> {
           TextFormField(
             initialValue: state.fullName,
             decoration: const InputDecoration(
-              hintText: 'مثال: محمد ايهاب',
+              hintText: 'مثال: محمود محمد محمود حسن',
               prefixIcon: Icon(Icons.person_outline),
             ),
             onChanged: controller.setFullName,

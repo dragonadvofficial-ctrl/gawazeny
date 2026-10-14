@@ -36,7 +36,9 @@ class OnboardingRepository {
     }
   }
 
-  /// Uploads avatar binary to Supabase Storage `profile-photos` and records it in `profile_photos`.
+  /// Uploads avatar binary to Supabase Storage `profile-photos` and returns the public URL.
+  /// Note: Does NOT insert into `profile_photos` table here — that must happen
+  /// after the `profiles` record exists (FK constraint).
   Future<String> uploadProfilePhoto({
     required Uint8List bytes,
     required String userId,
@@ -61,16 +63,30 @@ class OnboardingRepository {
           .from(SupabaseConstants.profilePhotosBucket)
           .getPublicUrl(storagePath);
 
-      // Insert or update record in profile_photos table
-      await _client.from(SupabaseConstants.profilePhotosTable).insert({
-        'user_id': userId,
-        'photo_url': publicUrl,
-        'is_primary': true,
-      });
-
       return publicUrl;
     } catch (e) {
       throw 'فشل في رفع الصورة الشخصية: $e';
+    }
+  }
+
+  /// Inserts or updates the photo record in the `profile_photos` table.
+  /// Must be called AFTER the `profiles` record exists (FK constraint).
+  Future<void> saveProfilePhotoRecord({
+    required String userId,
+    required String photoUrl,
+  }) async {
+    try {
+      await _client.from(SupabaseConstants.profilePhotosTable).upsert(
+        {
+          'user_id': userId,
+          'photo_url': photoUrl,
+          'is_primary': true,
+        },
+        onConflict: 'user_id',
+      );
+    } catch (e) {
+      // Non-critical: photo is already in storage, log and continue
+      throw 'فشل في حفظ سجل الصورة: $e';
     }
   }
 

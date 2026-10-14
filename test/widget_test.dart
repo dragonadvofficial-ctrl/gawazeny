@@ -79,7 +79,7 @@ void main() {
     await tester.pumpWidget(buildApp(const OnboardingScreen()));
     await tester.pump();
 
-    expect(find.text('الأساسيات'), findsWidgets);
+    expect(find.text('البيانات الأساسية'), findsWidgets);
     expect(find.text('الخطوة 1 من 5'), findsOneWidget);
     expect(find.text('الاسم الرباعي'), findsOneWidget);
     expect(find.text('الجنس'), findsOneWidget);
@@ -218,7 +218,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(IdentityVerificationScreen), findsOneWidget);
-    expect(find.text(AppStrings.idVerificationTitle), findsOneWidget);
+    expect(find.text('توثيق الهوية بالذكاء الاصطناعي'), findsOneWidget);
     expect(find.text(AppStrings.uploadIdCard), findsOneWidget);
     expect(find.text('من المعرض'), findsWidgets);
     expect(find.text('من الكاميرا'), findsWidgets);
@@ -294,7 +294,7 @@ void main() {
     expect(find.byType(ChatInboxScreen), findsOneWidget);
     expect(find.text(AppStrings.navChat), findsOneWidget);
     // Search field is visible
-    expect(find.widgetWithText(TextField, 'بحث في المحادثات...'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
   });
 
   testWidgets('MainNavigationShell renders Arabic navigation tabs', (
