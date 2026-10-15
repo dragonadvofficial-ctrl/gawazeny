@@ -127,7 +127,7 @@ class AppTranslations {
       'basicData': 'البيانات الأساسية',
       'basicDataSub': 'يرجى إدخال بياناتك الحقيقية المطابقة لبطاقة الرقم القومي.',
       'fullName': 'الاسم الرباعي',
-      'fullNameHint': 'مثال: محمد ايهاب',
+      'fullNameHint': 'مثال: محمود محمد محمود حسن',
       'gender': 'الجنس',
       'maleGroom': 'رجل / عريس',
       'femaleBride': 'امرأة / عروسة',

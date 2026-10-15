@@ -104,7 +104,10 @@ class OnboardingState {
 
   /// Step 4 validation: Valid age range and at least one marital status accepted.
   bool get isStep4Valid {
-    return minAge >= 18 && maxAge >= minAge && acceptableMaritalStatuses.isNotEmpty;
+    return minAge >= 18 &&
+        maxAge >= minAge &&
+        acceptableMaritalStatuses.isNotEmpty &&
+        acceptableCities.isNotEmpty;
   }
 
   /// Step 5 validation: Photo selected or uploaded.

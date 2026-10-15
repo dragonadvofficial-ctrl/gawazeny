@@ -16,6 +16,11 @@ class Step4PreferencesWidget extends ConsumerWidget {
     final state = ref.watch(onboardingControllerProvider);
     final controller = ref.read(onboardingControllerProvider.notifier);
 
+    // Clean list of Egyptian governorates and key cities
+    final allEgyptianCities = AppDataLists.egyptianCities
+        .where((c) => !c.contains('(') && !c.contains('مقيم'))
+        .toList();
+
     return SingleChildScrollView(
       padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 16.h),
       child: Column(
@@ -27,7 +32,7 @@ class Step4PreferencesWidget extends ConsumerWidget {
           ),
           SizedBox(height: 6.h),
           Text(
-            'حدد المعايير التي تهمك لتصفية المرشحين بما يتوافق مع رغباتك.',
+            'حدد المعايير التي تهمك لتصفية المرشحين بما يتوافق مع رغباتك وقيمك.',
             style: AppTextStyles.bodySmall,
           ),
           SizedBox(height: 24.h),
@@ -114,7 +119,7 @@ class Step4PreferencesWidget extends ConsumerWidget {
           ),
           SizedBox(height: 24.h),
 
-          // Acceptable Cities
+          // Acceptable Governorates & Cities
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -124,24 +129,104 @@ class Step4PreferencesWidget extends ConsumerWidget {
                   color: AppColors.primaryNavy,
                 ),
               ),
-              Text(
-                '(${state.acceptableCities.length} محددة)',
-                style: AppTextStyles.labelSmall.copyWith(
-                  color: AppColors.secondaryPink,
-                  fontWeight: FontWeight.bold,
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 3.h),
+                decoration: BoxDecoration(
+                  color: AppColors.lightPink,
+                  borderRadius: BorderRadius.circular(10.r),
+                ),
+                child: Text(
+                  '${state.acceptableCities.length} محددة',
+                  style: AppTextStyles.labelSmall.copyWith(
+                    color: AppColors.secondaryPink,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
           ),
+          SizedBox(height: 6.h),
+          Text(
+            'المحافظات المحددة في الخطوات السابقة تظهر محددة تلقائياً. يمكنك إضافة أو إزالة أي محافظة.',
+            style: AppTextStyles.labelSmall.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
           SizedBox(height: 10.h),
+
+          // Quick actions bar
+          Row(
+            children: [
+              if (state.residenceCity.isNotEmpty) ...[
+                ActionChip(
+                  avatar: const Icon(
+                    Icons.home_outlined,
+                    size: 16,
+                    color: AppColors.secondaryPink,
+                  ),
+                  label: Text(
+                    'محافظتي (${state.residenceCity})',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: AppColors.secondaryPink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  backgroundColor: AppColors.lightPink,
+                  side: BorderSide.none,
+                  onPressed: () {
+                    if (!state.acceptableCities.contains(state.residenceCity)) {
+                      controller.toggleCity(state.residenceCity);
+                    }
+                  },
+                ),
+                SizedBox(width: 8.w),
+              ],
+              ActionChip(
+                avatar: const Icon(
+                  Icons.select_all,
+                  size: 16,
+                  color: AppColors.primaryNavy,
+                ),
+                label: Text(
+                  'تحديد الكل',
+                  style: AppTextStyles.labelSmall.copyWith(
+                    color: AppColors.primaryNavy,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                backgroundColor: AppColors.borderSubtle.withAlpha(80),
+                side: BorderSide.none,
+                onPressed: () => controller.selectAllCities(allEgyptianCities),
+              ),
+              SizedBox(width: 8.w),
+              ActionChip(
+                avatar: const Icon(
+                  Icons.clear_all,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
+                label: Text(
+                  'مسح',
+                  style: AppTextStyles.labelSmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                backgroundColor: AppColors.borderSubtle.withAlpha(50),
+                side: BorderSide.none,
+                onPressed: controller.clearCities,
+              ),
+            ],
+          ),
+          SizedBox(height: 12.h),
+
+          // Chips display with preserved selection
           Wrap(
             spacing: 8.w,
             runSpacing: 8.h,
             children: {
               ...state.acceptableCities,
-              if (state.residenceCity.isNotEmpty)
-                state.residenceCity,
-              ...AppDataLists.egyptianCities.where((c) => !c.contains('(') && !c.contains('مقيم')),
+              if (state.residenceCity.isNotEmpty) state.residenceCity,
+              ...allEgyptianCities,
             }.map((city) {
               final isSelected = state.acceptableCities.contains(city);
               return FilterChip(
@@ -149,6 +234,8 @@ class Step4PreferencesWidget extends ConsumerWidget {
                 selected: isSelected,
                 selectedColor: AppColors.primaryNavy,
                 backgroundColor: AppColors.surfaceWhite,
+                checkmarkColor: AppColors.surfaceWhite,
+                showCheckmark: true,
                 labelStyle: AppTextStyles.bodySmall.copyWith(
                   color:
                       isSelected ? AppColors.surfaceWhite : AppColors.primaryNavy,
@@ -222,6 +309,8 @@ class _StatusFilterChip extends StatelessWidget {
       onSelected: (_) => onSelected(),
       selectedColor: AppColors.secondaryPink,
       backgroundColor: AppColors.surfaceWhite,
+      checkmarkColor: AppColors.surfaceWhite,
+      showCheckmark: true,
       labelStyle: AppTextStyles.bodyMedium.copyWith(
         color: isSelected ? AppColors.surfaceWhite : AppColors.primaryNavy,
         fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,

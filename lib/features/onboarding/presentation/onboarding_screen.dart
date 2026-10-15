@@ -41,6 +41,13 @@ class OnboardingScreen extends ConsumerWidget {
     final currentStep = state.currentStep;
     final progress = (currentStep + 1) / 5.0;
 
+    final effectiveUserId = currentUser?.id ?? ref.read(supabaseServiceProvider).client.auth.currentUser?.id;
+    if (effectiveUserId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.loadExistingData(effectiveUserId);
+      });
+    }
+
     void handleNext() {
       // Validate active step
       if (currentStep == 0 && !state.isStep1Valid) {

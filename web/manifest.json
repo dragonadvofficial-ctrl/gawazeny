@@ -1,11 +1,11 @@
 {
-    "name": "gawezeny",
-    "short_name": "gawezeny",
+    "name": "جوزيني يا ماما",
+    "short_name": "جوزيني يا ماما",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#1B2A4A",
+    "description": "منصة الزواج الجاد المتوافقة مع القيم العائلية والشريعة",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../matching/domain/partner_preferences.dart';
 import '../../profile/domain/user_profile.dart';
@@ -11,8 +11,58 @@ import '../../../core/network/auth_gate.dart';
 class OnboardingController extends StateNotifier<OnboardingState> {
   final OnboardingRepository _repository;
   final Ref _ref;
+  bool _hasLoadedExisting = false;
 
   OnboardingController(this._repository, this._ref) : super(const OnboardingState());
+
+  /// Loads existing profile and partner preferences from Supabase if available.
+  Future<void> loadExistingData(String userId) async {
+    if (_hasLoadedExisting) return;
+    _hasLoadedExisting = true;
+
+    try {
+      final profile = await _repository.getProfile(userId);
+      final preferences = await _repository.getPreferences(userId);
+      final photoUrl = await _repository.getPrimaryPhotoUrl(userId);
+
+      if (profile != null || preferences != null || photoUrl != null) {
+        // Pre-fill state with saved data
+        final currentCities = preferences?.acceptableCities ?? state.acceptableCities;
+        final resCity = profile?.residenceCity.trim() ?? state.residenceCity;
+
+        final citiesList = List<String>.from(currentCities);
+        if (resCity.isNotEmpty && !citiesList.contains(resCity)) {
+          citiesList.insert(0, resCity);
+        }
+
+        state = state.copyWith(
+          fullName: profile?.fullName ?? state.fullName,
+          gender: profile?.gender ?? state.gender,
+          birthDate: profile?.birthDate ?? state.birthDate,
+          nationality: profile?.nationality ?? state.nationality,
+          residenceCity: resCity,
+          maritalStatus: profile?.maritalStatus ?? state.maritalStatus,
+          jobTitle: profile?.jobTitle ?? state.jobTitle,
+          educationLevel: profile?.educationLevel ?? state.educationLevel,
+          heightCm: profile?.heightCm ?? state.heightCm,
+          weightKg: profile?.weightKg ?? state.weightKg,
+          smoker: profile?.smoker ?? state.smoker,
+          prays: profile?.prays ?? state.prays,
+          wantsChildren: profile?.wantsChildren ?? state.wantsChildren,
+          bio: profile?.bio ?? state.bio,
+          minAge: preferences?.minAge ?? state.minAge,
+          maxAge: preferences?.maxAge ?? state.maxAge,
+          acceptableMaritalStatuses: preferences?.acceptableMaritalStatuses ?? state.acceptableMaritalStatuses,
+          acceptableCities: citiesList,
+          mustPray: preferences?.mustPray ?? state.mustPray,
+          acceptsSmokers: preferences?.acceptsSmokers ?? state.acceptsSmokers,
+          uploadedPhotoUrl: photoUrl ?? profile?.photoUrl ?? state.uploadedPhotoUrl,
+        );
+      }
+    } catch (e) {
+      debugPrint('loadExistingData error: $e');
+    }
+  }
 
   // Navigation
   void nextStep() {
@@ -117,11 +167,25 @@ class OnboardingController extends StateNotifier<OnboardingState> {
   void toggleCity(String city) {
     final list = List<String>.from(state.acceptableCities);
     if (list.contains(city)) {
-      if (list.length > 1) list.remove(city);
+      list.remove(city);
     } else {
       list.add(city);
     }
     state = state.copyWith(acceptableCities: list);
+  }
+
+  void selectAllCities(List<String> allCities) {
+    state = state.copyWith(acceptableCities: List<String>.from(allCities));
+  }
+
+  void selectOnlyResidenceCity() {
+    if (state.residenceCity.isNotEmpty) {
+      state = state.copyWith(acceptableCities: [state.residenceCity]);
+    }
+  }
+
+  void clearCities() {
+    state = state.copyWith(acceptableCities: []);
   }
 
   void setMustPray(bool value) {
@@ -143,21 +207,35 @@ class OnboardingController extends StateNotifier<OnboardingState> {
 
     try {
       String? photoUrl = state.uploadedPhotoUrl;
+      String? photoUploadWarning;
 
-      // 1. Upload photo to storage (file only, no DB record yet)
+      // 1. Attempt to upload photo to storage if new bytes were provided
       if (state.photoBytes != null) {
         final extension = state.photoFileName?.split('.').last ?? 'jpg';
-        photoUrl = await _repository.uploadProfilePhoto(
-          bytes: state.photoBytes!,
-          userId: userId,
-          fileExtension: extension,
-        );
-        state = state.copyWith(uploadedPhotoUrl: photoUrl);
+        try {
+          photoUrl = await _repository.uploadProfilePhoto(
+            bytes: state.photoBytes!,
+            userId: userId,
+            fileExtension: extension,
+          );
+          state = state.copyWith(uploadedPhotoUrl: photoUrl);
+        } catch (photoErr) {
+          debugPrint('Photo upload failed: $photoErr');
+          final errStr = photoErr.toString();
+          if (errStr.contains('403') ||
+              errStr.contains('Unauthorized') ||
+              errStr.contains('row-level security')) {
+            photoUploadWarning =
+                'تعذر رفع الصورة الشخصية بسبب صلاحيات التخزين (403 Unauthorized). يرجى التأكد من تشغيل ملف تهيئة التخزين fix_avatar_storage_rls.sql في Supabase.';
+          } else {
+            photoUploadWarning = 'تعذر رفع الصورة الشخصية: $photoErr';
+          }
+        }
       }
 
       final now = DateTime.now();
 
-      // 2. Persist User Profile FIRST (creates the FK target for profile_photos)
+      // 2. Persist User Profile FIRST (including photoUrl so profile has avatar)
       final profile = UserProfile(
         id: userId,
         fullName: state.fullName.trim(),
@@ -177,24 +255,25 @@ class OnboardingController extends StateNotifier<OnboardingState> {
         bio: state.bio.trim(),
         verificationStatus: VerificationStatusType.unverified,
         subscriptionStatus: SubscriptionStatusType.free,
+        photoUrl: photoUrl,
         createdAt: now,
         updatedAt: now,
       );
       await _repository.saveProfile(profile);
 
-      // 3. Save profile photo record AFTER profiles exists (FK constraint satisfied)
+      // 3. Save profile photo record in profile_photos table
       if (photoUrl != null && photoUrl.isNotEmpty) {
         try {
           await _repository.saveProfilePhotoRecord(
             userId: userId,
             photoUrl: photoUrl,
           );
-        } catch (_) {
-          // Non-critical: photo is already uploaded to storage
+        } catch (photoRecErr) {
+          debugPrint('saveProfilePhotoRecord non-critical error: $photoRecErr');
         }
       }
 
-      // 4. Persist Partner Preferences
+      // 4. Persist Partner Preferences (including all chosen governorates)
       final preferences = PartnerPreferences(
         userId: userId,
         minAge: state.minAge,
@@ -210,15 +289,24 @@ class OnboardingController extends StateNotifier<OnboardingState> {
       // Invalidate profile completion to trigger reactive navigation in AuthGate
       _ref.invalidate(profileCompletionProvider(userId));
 
-      state = state.copyWith(isSubmitting: false);
+      if (photoUploadWarning != null) {
+        state = state.copyWith(
+          isSubmitting: false,
+          errorMessage: photoUploadWarning,
+        );
+        return false;
+      }
+
+      state = state.copyWith(isSubmitting: false, errorMessage: null);
       return true;
     } catch (e) {
       String errorMsg = e.toString();
-      // Provide user-friendly error messages
+      debugPrint('submitOnboarding error: $errorMsg');
       if (errorMsg.contains('403') || errorMsg.contains('Unauthorized')) {
-        errorMsg = 'فشل في حفظ البيانات. يرجى التأكد من تسجيل الدخول وإعادة المحاولة.';
+        errorMsg =
+            'حدث خطأ في صلاحيات الحفظ (403 Unauthorized). يرجى التأكد من تسجيل الدخول أو إعدادات قاعدة البيانات في Supabase.';
       } else if (errorMsg.contains('network') || errorMsg.contains('SocketException')) {
-        errorMsg = 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.';
+        errorMsg = 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.';
       }
       state = state.copyWith(
         isSubmitting: false,
