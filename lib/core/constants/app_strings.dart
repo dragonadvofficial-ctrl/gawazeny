@@ -58,8 +58,20 @@ abstract final class AppStrings {
   static const String errorSessionExpired = 'انتهت صلاحية الجلسة، يرجى إعادة تسجيل الدخول';
 
   // Identity Verification
-  static const String idVerificationTitle = 'توثيق الهوية الوطنية';
-  static const String idVerificationSubtitle = 'لضمان مجتمع آمن وجاد، نطلب التحقق من الهوية وصورة السيلفي الحية';
+  static const String idVerificationTitle = 'توثيق الحساب';
+  static const String idVerificationSubtitle = 'لضمان مجتمع آمن وجاد، نطلب مراجعة بطاقة الرقم القومي والصورة الشخصية';
   static const String uploadIdCard = 'رفع صورة بطاقة الرقم القومي';
-  static const String takeSelfie = 'التقاط صورة سيلفي حية';
+  static const String takeSelfie = 'التقاط الصورة الشخصية';
+  static const String verificationPendingNotice =
+      'تم استلام طلب توثيق حسابك بنجاح. برجاء الانتظار، سيتم مراجعة طلبك خلال 15 دقيقة.';
+
+  // Authentication & Session Persistence
+  static const String rememberMeOnThisDevice = 'تذكّرني على هذا الجهاز';
+  static const String creatingAccount = 'جارٍ إنشاء الحساب...';
+  static const String signingIn = 'جارٍ تسجيل الدخول...';
+  static const String accountCreatedSuccessTitle = 'تم إنشاء حسابك بنجاح! 📩';
+  static const String accountCreatedSuccessDesc =
+      'بعتنالك رسالة تأكيد على بريدك الإلكتروني. افتح الرسالة واضغط على رابط التأكيد لتفعيل حسابك. لو مش لاقي الرسالة، راجع مجلد الرسائل غير المرغوب فيها (Spam).';
+  static const String resendConfirmationEmail = 'إعادة إرسال رسالة التأكيد';
+  static const String goToSignIn = 'الانتقال لتسجيل الدخول';
 }

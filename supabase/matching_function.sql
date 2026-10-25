@@ -112,12 +112,12 @@ BEGIN
       LEAST(
         99,
         GREATEST(
-          50,
-          50 -- Base score minimum 50%
+          10,
+          0 -- No artificial 50% floor
           + (CASE WHEN p.age BETWEEN v_min_age AND v_max_age THEN 20 ELSE 0 END)
           + (CASE WHEN (p.residence_city = v_user_city OR (array_length(v_acceptable_cities, 1) > 0 AND p.residence_city = ANY(v_acceptable_cities))) THEN 20 ELSE 0 END)
           + (CASE WHEN (array_length(v_acceptable_statuses, 1) IS NULL OR array_length(v_acceptable_statuses, 1) = 0 OR p.marital_status = ANY(v_acceptable_statuses)) THEN 20 ELSE 0 END)
-          + (CASE WHEN (v_must_pray IS FALSE OR p.prays ILIKE '%محافظ%') THEN 15 ELSE 0 END)
+          + (CASE WHEN (v_must_pray IS FALSE OR p.prays ILIKE '%محافظ%' OR p.prays ILIKE '%دائماً%' OR p.prays ILIKE '%وقتها%' OR p.prays ILIKE '%مسجد%') THEN 15 ELSE 0 END)
           + (CASE WHEN (v_accepts_smokers IS TRUE OR p.smoker IS FALSE) THEN 15 ELSE 0 END)
           + (CASE WHEN p.verification_status = 'VERIFIED' THEN 10 ELSE 0 END)
         )

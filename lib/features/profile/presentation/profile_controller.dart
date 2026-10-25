@@ -387,6 +387,15 @@ class ProfileController extends StateNotifier<ProfileState> {
     }
   }
 
+  /// Updates the verification status of the current user profile.
+  void setVerificationStatus(VerificationStatusType status) {
+    if (state.profile != null) {
+      state = state.copyWith(
+        profile: state.profile!.copyWith(verificationStatus: status),
+      );
+    }
+  }
+
   /// Clears temporary feedback messages.
   void clearMessages() {
     state = state.copyWith(errorMessage: null, successMessage: null);

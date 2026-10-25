@@ -19,7 +19,7 @@ class PreviewMockData {
 
   static final User currentUserAuth = User(
     id: currentUserId,
-    appMetadata: const {'provider': 'email'},
+    appMetadata: const {'provider': 'email', 'is_verified': true},
     userMetadata: const {'full_name': 'أحمد مصطفى'},
     aud: 'authenticated',
     email: 'ahmed.mostafa@example.com',
@@ -142,6 +142,122 @@ class PreviewMockData {
       compatibilityScore: 91,
       primaryPhotoUrl:
           'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400&auto=format&fit=crop&q=80',
+    ),
+
+    // 4. ياسمين عبد الرحمن (Low Compatibility Candidate - 25% to verify no minimum threshold)
+    ScoredProfile(
+      profile: UserProfile(
+        id: 'candidate-yasmin-04',
+        fullName: 'ياسمين عبد الرحمن',
+        gender: GenderType.female,
+        birthDate: DateTime(1993, 2, 18),
+        age: 32,
+        nationality: 'مصرية',
+        residenceCity: 'أسيوط',
+        maritalStatus: MaritalStatusType.divorced,
+        jobTitle: 'أخصائية تسويق رقمي',
+        educationLevel: 'مؤهل جامعي / بكالوريوس',
+        heightCm: 160,
+        weightKg: 65,
+        smoker: true,
+        prays: 'أصلي معظم الأوقات',
+        wantsChildren: false,
+        bio: 'مستقلة وطموحة، أعمل في التسويق وأبحث عن شخص متفهم وناضج يحترم خصوصية الآخر.',
+        verificationStatus: VerificationStatusType.unverified,
+        subscriptionStatus: SubscriptionStatusType.free,
+        createdAt: DateTime(2025, 2, 5),
+        updatedAt: DateTime.now(),
+      ),
+      compatibilityScore: 25, // Low score to verify visibility without 50% floor!
+      primaryPhotoUrl:
+          'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&auto=format&fit=crop&q=80',
+    ),
+
+    // 5. سلمى إبراهيم (Uncalculated Compatibility Candidate - null score)
+    ScoredProfile(
+      profile: UserProfile(
+        id: 'candidate-salma-05',
+        fullName: 'سلمى إبراهيم',
+        gender: GenderType.female,
+        birthDate: DateTime(2001, 4, 15),
+        age: 23,
+        nationality: 'مصرية',
+        residenceCity: 'طنطا',
+        maritalStatus: MaritalStatusType.single,
+        jobTitle: 'محاسبة مالية',
+        educationLevel: 'بكالوريوس تجارة شعبة محاسبة',
+        heightCm: 166,
+        weightKg: 60,
+        smoker: false,
+        prays: 'محافظ على الصلاة في وقتها',
+        wantsChildren: true,
+        bio: 'خريجة تجارة، أحب النظام والترتيب، أبحث عن شريك جاد لبناء حياة مستقرة أساسها المودة.',
+        verificationStatus: VerificationStatusType.verified,
+        subscriptionStatus: SubscriptionStatusType.free,
+        createdAt: DateTime(2025, 2, 10),
+        updatedAt: DateTime.now(),
+      ),
+      compatibilityScore: null, // Null to verify "لم يتم حساب التوافق بعد" label!
+      primaryPhotoUrl:
+          'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=400&auto=format&fit=crop&q=80',
+    ),
+
+    // 6. عمر عبد العزيز (Male Candidate for browsing)
+    ScoredProfile(
+      profile: UserProfile(
+        id: 'candidate-omar-06',
+        fullName: 'عمر عبد العزيز',
+        gender: GenderType.male,
+        birthDate: DateTime(1995, 9, 10),
+        age: 29,
+        nationality: 'مصري',
+        residenceCity: 'القاهرة',
+        maritalStatus: MaritalStatusType.single,
+        jobTitle: 'مهندس مدني استشاري',
+        educationLevel: 'بكالوريوس هندسة مدنية',
+        heightCm: 180,
+        weightKg: 82,
+        smoker: false,
+        prays: 'محافظ على الصلاة في المسجد',
+        wantsChildren: true,
+        bio: 'مهندس مدني، أعمل في المقاولات والاستشارات، أبحث عن شريكة صالحة هادئة الطباع.',
+        verificationStatus: VerificationStatusType.verified,
+        subscriptionStatus: SubscriptionStatusType.active,
+        createdAt: DateTime(2025, 1, 8),
+        updatedAt: DateTime.now(),
+      ),
+      compatibilityScore: null, // Null when viewed by male (browsing only)
+      primaryPhotoUrl:
+          'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&auto=format&fit=crop&q=80',
+    ),
+
+    // 7. كريم يوسف (Male Candidate for browsing)
+    ScoredProfile(
+      profile: UserProfile(
+        id: 'candidate-karim-07',
+        fullName: 'كريم يوسف',
+        gender: GenderType.male,
+        birthDate: DateTime(1991, 6, 22),
+        age: 33,
+        nationality: 'مصري',
+        residenceCity: 'الإسكندرية',
+        maritalStatus: MaritalStatusType.divorced,
+        jobTitle: 'مدير تسويق عقاري',
+        educationLevel: 'بكالوريوس إدارة أعمال',
+        heightCm: 177,
+        weightKg: 76,
+        smoker: false,
+        prays: 'محافظ على الصلاة في وقتها',
+        wantsChildren: true,
+        bio: 'محب للرياضة والبحر، أبحث عن بداية جديدة قائمة على التفاهم والوضوح والاحترام المتبادل.',
+        verificationStatus: VerificationStatusType.verified,
+        subscriptionStatus: SubscriptionStatusType.free,
+        createdAt: DateTime(2025, 1, 12),
+        updatedAt: DateTime.now(),
+      ),
+      compatibilityScore: null, // Null when viewed by male
+      primaryPhotoUrl:
+          'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=400&auto=format&fit=crop&q=80',
     ),
   ];
 

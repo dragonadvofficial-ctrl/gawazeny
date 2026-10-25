@@ -6,10 +6,16 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/localization/app_translations.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/network/supabase_client.dart';
-import '../../chat/presentation/chat_inbox_screen.dart';
+import '../../../core/preview/preview_config.dart';
+import '../../../core/preview/preview_mock_data.dart';
+import '../../chat/data/chat_repository.dart';
+import '../../chat/domain/chat_message.dart';
+import '../../chat/presentation/chat_room_screen.dart';
 import '../../matching/domain/scored_profile.dart';
 import '../../matching/presentation/widgets/profile_details_sheet.dart';
+import '../../profile/data/profile_repository.dart';
 import '../../profile/domain/user_profile.dart';
+import '../../profile/presentation/profile_controller.dart';
 import '../../verification/presentation/identity_verification_screen.dart';
 import '../domain/match_model.dart';
 import 'likes_matches_controller.dart';
@@ -121,6 +127,7 @@ class _MatchesScreenState extends ConsumerState<MatchesScreen>
                     if (result != null && context.mounted) {
                       MatchSuccessDialog.show(
                         context,
+                        matchId: result.matchId,
                         partnerProfile: like.senderProfile,
                         partnerPhotoUrl: like.primaryPhotoUrl,
                       );
@@ -260,7 +267,7 @@ class _MutualMatchesList extends StatelessWidget {
   }
 }
 
-class _MutualMatchCard extends ConsumerWidget {
+class _MutualMatchCard extends ConsumerStatefulWidget {
   final MutualMatch match;
   final VoidCallback onUnmatch;
 
@@ -270,15 +277,211 @@ class _MutualMatchCard extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_MutualMatchCard> createState() => _MutualMatchCardState();
+}
+
+class _MutualMatchCardState extends ConsumerState<_MutualMatchCard> {
+  bool _isOpening = false;
+
+  Future<void> _openChat(BuildContext context) async {
+    if (_isOpening) return;
+    setState(() => _isOpening = true);
+
+    try {
+      final match = widget.match;
+      final profile = match.partnerProfile;
+      final currentUserAuth = ref.read(currentUserProvider);
+
+      if (currentUserAuth == null && !kPreviewMode) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                context.isArabic
+                    ? 'يجب تسجيل الدخول أولاً'
+                    : 'Please login first',
+              ),
+              backgroundColor: AppColors.errorRed,
+            ),
+          );
+        }
+        return;
+      }
+
+      final currentUid = currentUserAuth?.id ??
+          (kPreviewMode ? PreviewMockData.currentUserId : '');
+
+      // 1. Check current user verification status
+      var currentProfile = ref.read(currentUserProfileProvider);
+      if (currentProfile == null && !kPreviewMode && currentUid.isNotEmpty) {
+        try {
+          currentProfile = await ref
+              .read(profileRepositoryProvider)
+              .getProfile(currentUid);
+        } catch (_) {}
+      }
+
+      final isCurrentUserVerified = kPreviewMode ||
+          (currentProfile?.verificationStatus ==
+              VerificationStatusType.verified) ||
+          (currentUserAuth?.appMetadata['is_verified'] == true);
+
+      if (!isCurrentUserVerified) {
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20.r)),
+              title: Row(
+                children: [
+                  const Icon(Icons.verified_user_outlined,
+                      color: AppColors.warningOrange),
+                  SizedBox(width: 8.w),
+                  Expanded(
+                    child: Text(
+                      ctx.isArabic
+                          ? 'توثيق الهوية مطلوب'
+                          : 'Verification Required',
+                      style: AppTextStyles.titleMedium
+                          .copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              content: Text(
+                ctx.isArabic
+                    ? 'لضمان الجدية والأمان وحماية خصوصية الأعضاء، يُشترط توثيق هويتك الوطنية بالذكاء الاصطناعي قبل بدء المحادثة مع شريك حياتك.'
+                    : 'For safety and seriousness, ID verification is required before starting a matrimonial chat.',
+                style: AppTextStyles.bodyMedium,
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text(ctx.tr('cancel')),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.secondaryPink,
+                  ),
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const IdentityVerificationScreen(),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    ctx.isArabic ? 'توثيق الهوية الآن' : 'Verify ID Now',
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
+      // 2. Check partner verification status
+      final isPartnerVerified =
+          profile.verificationStatus == VerificationStatusType.verified;
+      if (!isPartnerVerified && !kPreviewMode) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                context.isArabic
+                    ? 'الطرف الآخر لم يُتمم توثيق هويته بعد. المحادثة تتاح فقط بعد توثيق الطرفين لضمان الجدية والأمان.'
+                    : 'The partner has not completed identity verification yet.',
+              ),
+              backgroundColor: AppColors.warningOrange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 3. Query backend or preview repository to get or create conversation
+      final chatRepo = ref.read(chatRepositoryProvider);
+      final authResult = await chatRepo.getOrCreateConversation(
+        matchId: match.matchId,
+        partnerId: profile.id,
+      );
+
+      if (!context.mounted) return;
+
+      if (!authResult.isAllowed || authResult.conversationId == null) {
+        final code = authResult.errorCode;
+        final msg = authResult.errorMessage ??
+            (context.isArabic ? 'تعذر فتح المحادثة' : 'Could not open chat');
+
+        if (code == 'NOT_VERIFIED') {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const IdentityVerificationScreen(),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: AppColors.errorRed,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 4. Construct Conversation object with retrieved conversation_id
+      final conversation = Conversation(
+        id: authResult.conversationId!,
+        matchId: match.matchId,
+        userOneId: currentUid,
+        userTwoId: profile.id,
+        partnerId: profile.id,
+        partnerName: profile.fullName,
+        partnerPhotoUrl: match.primaryPhotoUrl,
+        partnerIsVerified: isPartnerVerified,
+        lastMessageAt: DateTime.now(),
+        createdAt: match.matchedAt,
+      );
+
+      // 5. Navigate directly to the ChatRoomScreen
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ChatRoomScreen(conversation: conversation),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.isArabic
+                  ? 'حدث خطأ أثناء فتح المحادثة، يرجى المحاولة لاحقاً'
+                  : 'An error occurred while opening chat',
+            ),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isOpening = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final match = widget.match;
     final profile = match.partnerProfile;
     final isVerified =
         profile.verificationStatus == VerificationStatusType.verified;
-    final currentUser = ref.watch(currentUserProvider);
 
     return Container(
       margin: EdgeInsets.only(bottom: 14.h),
-      padding: EdgeInsets.all(14.r),
       decoration: BoxDecoration(
         color: AppColors.surfaceWhite,
         borderRadius: BorderRadius.circular(20.r),
@@ -291,218 +494,220 @@ class _MutualMatchCard extends ConsumerWidget {
           ),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Avatar with Verification Indicator
-          Stack(
-            children: [
-              Container(
-                width: 68.r,
-                height: 68.r,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.lightPink, width: 2),
-                ),
-                child: ClipOval(
-                  child: match.primaryPhotoUrl != null &&
-                          match.primaryPhotoUrl!.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: match.primaryPhotoUrl!,
-                          fit: BoxFit.cover,
-                          errorWidget: (context, url, error) => Container(
-                            color: AppColors.lightPink,
-                            child: Icon(
-                              Icons.person_rounded,
-                              color: AppColors.secondaryPink,
-                              size: 32.sp,
-                            ),
-                          ),
-                        )
-                      : Container(
-                          color: AppColors.lightPink,
-                          child: Icon(
-                            Icons.person_rounded,
-                            color: AppColors.secondaryPink,
-                            size: 32.sp,
-                          ),
-                        ),
-                ),
-              ),
-              if (isVerified)
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    padding: EdgeInsets.all(3.r),
-                    decoration: const BoxDecoration(
-                      color: AppColors.surfaceWhite,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.verified_rounded,
-                      color: AppColors.successGreen,
-                      size: 16.sp,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(width: 14.w),
-
-          // Partner Details
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20.r),
+          onTap: _isOpening ? null : () => _openChat(context),
+          child: Padding(
+            padding: EdgeInsets.all(14.r),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Row(
+                // Avatar with Verification Indicator
+                Stack(
                   children: [
-                    Expanded(
-                      child: Text(
-                        profile.fullName,
-                        style: AppTextStyles.titleMedium.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primaryNavy,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                    Container(
+                      width: 68.r,
+                      height: 68.r,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.lightPink, width: 2),
+                      ),
+                      child: ClipOval(
+                        child: match.primaryPhotoUrl != null &&
+                                match.primaryPhotoUrl!.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: match.primaryPhotoUrl!,
+                                fit: BoxFit.cover,
+                                errorWidget: (context, url, error) => Container(
+                                  color: AppColors.lightPink,
+                                  child: Icon(
+                                    Icons.person_rounded,
+                                    color: AppColors.secondaryPink,
+                                    size: 32.sp,
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                color: AppColors.lightPink,
+                                child: Icon(
+                                  Icons.person_rounded,
+                                  color: AppColors.secondaryPink,
+                                  size: 32.sp,
+                                ),
+                              ),
                       ),
                     ),
+                    if (isVerified)
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          padding: EdgeInsets.all(3.r),
+                          decoration: const BoxDecoration(
+                            color: AppColors.surfaceWhite,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.verified_rounded,
+                            color: AppColors.successGreen,
+                            size: 16.sp,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
-                SizedBox(height: 3.h),
-                Text(
-                  '${profile.age ?? 25} ${context.tr('yearsOld')} • ${profile.residenceCity}',
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
+                SizedBox(width: 14.w),
+
+                // Partner Details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              profile.fullName,
+                              style: AppTextStyles.titleMedium.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primaryNavy,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 3.h),
+                      Text(
+                        '${profile.age ?? 25} ${context.tr('yearsOld')} • ${profile.residenceCity}',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      if (profile.jobTitle != null && profile.jobTitle!.isNotEmpty) ...[
+                        SizedBox(height: 2.h),
+                        Text(
+                          profile.jobTitle!,
+                          style: AppTextStyles.labelSmall.copyWith(
+                            color: AppColors.primaryNavy.withValues(alpha: 0.8),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      SizedBox(height: 6.h),
+                      Text(
+                        context.isArabic ? 'تم التوافق بنية الزواج 💍' : 'Matched for Marriage 💍',
+                        style: TextStyle(
+                          fontSize: 10.sp,
+                          color: AppColors.secondaryPink,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                if (profile.jobTitle != null && profile.jobTitle!.isNotEmpty) ...[
-                  SizedBox(height: 2.h),
-                  Text(
-                    profile.jobTitle!,
-                    style: AppTextStyles.labelSmall.copyWith(
-                      color: AppColors.primaryNavy.withValues(alpha: 0.8),
+                SizedBox(width: 8.w),
+
+                // Action Buttons
+                Column(
+                  children: [
+                    // Chat / Verification Button
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: Size(84.w, 36.h),
+                        backgroundColor: AppColors.secondaryPink,
+                        padding: EdgeInsets.symmetric(horizontal: 10.w),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                      ),
+                      onPressed: _isOpening ? null : () => _openChat(context),
+                      child: _isOpening
+                          ? SizedBox(
+                              width: 16.r,
+                              height: 16.r,
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.surfaceWhite,
+                              ),
+                            )
+                          : Text(
+                              context.isArabic ? 'محادثة' : 'Chat',
+                              style: AppTextStyles.labelSmall.copyWith(
+                                color: AppColors.surfaceWhite,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-                SizedBox(height: 6.h),
-                Text(
-                  context.isArabic ? 'تم التوافق بنية الزواج 💍' : 'Matched for Marriage 💍',
-                  style: TextStyle(
-                    fontSize: 10.sp,
-                    color: AppColors.secondaryPink,
-                    fontWeight: FontWeight.w600,
-                  ),
+                    SizedBox(height: 4.h),
+
+                    // View Profile Details & Unmatch Menu
+                    PopupMenuButton<String>(
+                      icon: Icon(
+                        Icons.more_horiz_rounded,
+                        color: AppColors.textSecondary,
+                        size: 20.sp,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14.r),
+                      ),
+                      onSelected: (value) {
+                        if (value == 'details') {
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (_) => ProfileDetailsSheet(
+                              scoredCandidate: ScoredProfile(
+                                profile: profile,
+                                compatibilityScore: 90,
+                                primaryPhotoUrl: match.primaryPhotoUrl,
+                              ),
+                              onLike: () {},
+                              onPass: () => Navigator.of(context).pop(),
+                            ),
+                          );
+                        } else if (value == 'unmatch') {
+                          widget.onUnmatch();
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        PopupMenuItem(
+                          value: 'details',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.badge_outlined, size: 18),
+                              const SizedBox(width: 8),
+                              Text(context.isArabic ? 'عرض الملف الكامل' : 'View Full Profile'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'unmatch',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.heart_broken_outlined,
+                                  color: AppColors.errorRed, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                context.tr('unmatch'),
+                                style: const TextStyle(color: AppColors.errorRed),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          SizedBox(width: 8.w),
-
-          // Action Buttons
-          Column(
-            children: [
-              // Chat / Verification Button
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  minimumSize: Size(84.w, 36.h),
-                  backgroundColor: AppColors.secondaryPink,
-                  padding: EdgeInsets.symmetric(horizontal: 10.w),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12.r),
-                  ),
-                ),
-                onPressed: () {
-                  final isUserVerified =
-                      currentUser?.appMetadata['is_verified'] == true;
-
-                  if (isUserVerified) {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const ChatInboxScreen(),
-                      ),
-                    );
-                  } else {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const IdentityVerificationScreen(),
-                      ),
-                    );
-                  }
-                },
-                child: Text(
-                  context.isArabic ? 'محادثة' : 'Chat',
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: AppColors.surfaceWhite,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              SizedBox(height: 4.h),
-
-              // View Profile Details & Unmatch Menu
-              PopupMenuButton<String>(
-                icon: Icon(
-                  Icons.more_horiz_rounded,
-                  color: AppColors.textSecondary,
-                  size: 20.sp,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14.r),
-                ),
-                onSelected: (value) {
-                  if (value == 'details') {
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => ProfileDetailsSheet(
-                        scoredCandidate: ScoredProfile(
-                          profile: profile,
-                          compatibilityScore: 90,
-                          primaryPhotoUrl: match.primaryPhotoUrl,
-                        ),
-                        onLike: () {},
-                        onPass: () => Navigator.of(context).pop(),
-                      ),
-                    );
-                  } else if (value == 'unmatch') {
-                    onUnmatch();
-                  }
-                },
-                itemBuilder: (ctx) => [
-                  PopupMenuItem(
-                    value: 'details',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.badge_outlined, size: 18),
-                        const SizedBox(width: 8),
-                        Text(context.isArabic ? 'عرض الملف الكامل' : 'View Full Profile'),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'unmatch',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.heart_broken_outlined,
-                            color: AppColors.errorRed, size: 18),
-                        const SizedBox(width: 8),
-                        Text(
-                          context.tr('unmatch'),
-                          style: const TextStyle(color: AppColors.errorRed),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -7,8 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/localization/app_locale_controller.dart';
 import '../../../core/localization/app_translations.dart';
-import '../../../core/network/supabase_client.dart';
 import '../../../core/theme/text_styles.dart';
+import '../../auth/presentation/auth_controller.dart';
 import '../../auth/presentation/login_screen.dart';
 import '../../subscriptions/presentation/subscriptions_controller.dart';
 import '../../subscriptions/presentation/subscriptions_screen.dart';
@@ -54,8 +54,7 @@ class ProfileScreen extends ConsumerWidget {
             onPressed: () async {
               Navigator.pop(dialogCtx);
               try {
-                final supabase = ref.read(supabaseServiceProvider);
-                await supabase.client.auth.signOut();
+                await ref.read(authControllerProvider.notifier).signOut();
               } catch (_) {}
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(

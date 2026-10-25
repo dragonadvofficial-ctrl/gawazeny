@@ -6,7 +6,7 @@ import '../../../../core/theme/text_styles.dart';
 import '../../../profile/domain/user_profile.dart';
 import '../../domain/matching_filters.dart';
 
-/// Modal bottom sheet allowing users to customize matrimonial search filters.
+/// Modal bottom sheet allowing users to customize matrimonial search and discovery filters.
 class SearchFilterSheet extends StatefulWidget {
   final MatchingFilters initialFilters;
   final ValueChanged<MatchingFilters> onApply;
@@ -44,6 +44,9 @@ class SearchFilterSheet extends StatefulWidget {
 
 class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late TextEditingController _searchController;
+  GenderType? _targetGender;
+  late bool _showAllGenders;
+  late String _sortBy;
   late int _minAge;
   late int _maxAge;
   late List<String> _selectedCities;
@@ -58,6 +61,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     super.initState();
     final f = widget.initialFilters;
     _searchController = TextEditingController(text: f.searchQuery);
+    _targetGender = f.targetGender;
+    _showAllGenders = f.showAllGenders;
+    _sortBy = f.sortBy;
     _minAge = f.minAge;
     _maxAge = f.maxAge;
     _selectedCities = List.from(f.selectedCities);
@@ -77,6 +83,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   void _reset() {
     setState(() {
       _searchController.clear();
+      _targetGender = null;
+      _showAllGenders = false;
+      _sortBy = 'compatibility';
       _minAge = 18;
       _maxAge = 60;
       _selectedCities.clear();
@@ -91,6 +100,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   void _apply() {
     final filters = MatchingFilters(
       searchQuery: _searchController.text.trim(),
+      targetGender: _targetGender,
+      showAllGenders: _showAllGenders,
+      sortBy: _sortBy,
       minAge: _minAge,
       maxAge: _maxAge,
       selectedCities: _selectedCities,
@@ -107,7 +119,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
-      initialChildSize: 0.88,
+      initialChildSize: 0.90,
       minChildSize: 0.5,
       maxChildSize: 0.95,
       expand: false,
@@ -165,7 +177,65 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                     vertical: 16.h,
                   ),
                   children: [
-                    // Keyword / Name Search
+                    // 1. Gender Filter
+                    Text(
+                      context.tr('showCandidates'),
+                      style: AppTextStyles.titleSmall.copyWith(
+                        color: AppColors.primaryNavy,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 8.h),
+                    Wrap(
+                      spacing: 8.w,
+                      children: [
+                        _FilterChipItem(
+                          label: context.tr('femalesOnly'),
+                          isSelected: !_showAllGenders && _targetGender == GenderType.female,
+                          onTap: () {
+                            setState(() {
+                              _targetGender = GenderType.female;
+                              _showAllGenders = false;
+                            });
+                          },
+                        ),
+                        _FilterChipItem(
+                          label: context.tr('malesOnly'),
+                          isSelected: !_showAllGenders && _targetGender == GenderType.male,
+                          onTap: () {
+                            setState(() {
+                              _targetGender = GenderType.male;
+                              _showAllGenders = false;
+                            });
+                          },
+                        ),
+                        _FilterChipItem(
+                          label: context.tr('allMembers'),
+                          isSelected: _showAllGenders,
+                          onTap: () {
+                            setState(() {
+                              _showAllGenders = true;
+                              _targetGender = null;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 6.h),
+                    Text(
+                      _showAllGenders || _targetGender != null
+                          ? (context.isArabic
+                              ? 'ملاحظة: تُحسب نسبة التوافق للزواج فقط بين الجنسين المتقابلين وفقاً لضوابط المنصة.'
+                              : 'Note: Marriage compatibility is calculated only between opposite genders.')
+                          : '',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                        fontSize: 11.sp,
+                      ),
+                    ),
+                    SizedBox(height: 20.h),
+
+                    // 2. Keyword / Name Search
                     Text(
                       context.tr('searchByNameOrKeyword'),
                       style: AppTextStyles.titleSmall.copyWith(
@@ -180,9 +250,39 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                         prefixIcon: const Icon(Icons.search_rounded),
                       ),
                     ),
-                    SizedBox(height: 24.h),
+                    SizedBox(height: 20.h),
 
-                    // Age RangeSlider
+                    // 3. Sorting Criterion
+                    Text(
+                      context.tr('sortResults'),
+                      style: AppTextStyles.titleSmall.copyWith(
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                    SizedBox(height: 8.h),
+                    Wrap(
+                      spacing: 8.w,
+                      children: [
+                        _FilterChipItem(
+                          label: context.tr('sortByCompatibility'),
+                          isSelected: _sortBy == 'compatibility',
+                          onTap: () => setState(() => _sortBy = 'compatibility'),
+                        ),
+                        _FilterChipItem(
+                          label: context.tr('sortByNewest'),
+                          isSelected: _sortBy == 'newest',
+                          onTap: () => setState(() => _sortBy = 'newest'),
+                        ),
+                        _FilterChipItem(
+                          label: context.tr('sortByVerified'),
+                          isSelected: _sortBy == 'verified',
+                          onTap: () => setState(() => _sortBy = 'verified'),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 20.h),
+
+                    // 4. Age RangeSlider
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -232,7 +332,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                     ),
                     SizedBox(height: 20.h),
 
-                    // Marital Status Filter
+                    // 5. Marital Status Filter
                     Text(
                       context.tr('maritalStatus'),
                       style: AppTextStyles.titleSmall.copyWith(
@@ -298,7 +398,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                     ),
                     SizedBox(height: 20.h),
 
-                    // Residence City Filter
+                    // 6. Residence City Filter
                     Text(
                       context.tr('cityAndGovernorate'),
                       style: AppTextStyles.titleSmall.copyWith(
@@ -328,7 +428,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                     ),
                     SizedBox(height: 20.h),
 
-                    // Education Level Filter
+                    // 7. Education Level Filter
                     Text(
                       context.tr('educationLevel'),
                       style: AppTextStyles.titleSmall.copyWith(
@@ -370,7 +470,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                     ),
                     SizedBox(height: 20.h),
 
-                    // Specific Lifestyle & Quality Criteria Cards
+                    // 8. Lifestyle & Verification Criteria
                     Card(
                       margin: EdgeInsets.zero,
                       child: Column(

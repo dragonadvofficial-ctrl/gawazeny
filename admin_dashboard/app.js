@@ -21,12 +21,12 @@
     localStorage.removeItem('gawezeny_supabase_anon_key');
   }
 
+  localStorage.removeItem('gawezeny_demo_mode');
   let currentSupabaseUrl = localStorage.getItem('gawezeny_supabase_url') || (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL ? SUPABASE_URL : DEFAULT_SUPABASE_URL);
   let currentSupabaseKey = localStorage.getItem('gawezeny_supabase_anon_key') || (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY ? SUPABASE_ANON_KEY : DEFAULT_SUPABASE_KEY);
   
-  // Connect to live database on launch when credentials are configured
-  const hasValidCredentials = currentSupabaseUrl && !currentSupabaseUrl.includes('placeholder') && currentSupabaseKey && !currentSupabaseKey.includes('placeholder');
-  let isDemoMode = hasValidCredentials ? (localStorage.getItem('gawezeny_demo_mode') === 'true') : true;
+  // REAL DATABASE MODE ONLY - Mock / Demo data is strictly disabled
+  const isDemoMode = false;
   let supabase = null;
 
   function initSupabaseClient() {
@@ -42,6 +42,49 @@
     }
   }
   initSupabaseClient();
+
+  // --------------------------------------------------------------------------
+  // Rich Error Formatting Helper (Displays exact actionable errors)
+  // --------------------------------------------------------------------------
+  function formatDetailedError(err) {
+    if (!err) return { title: 'خطأ غير محدد', message: 'حدث خطأ غير معروف', raw: '' };
+    if (typeof err === 'string') return { title: 'تنبيه', message: err, raw: err };
+
+    let title = 'حدث خطأ في العملية';
+    let message = err.message || 'فشلت الاستجابة من خادم Supabase';
+    let rawParts = [];
+
+    const lowerMsg = (message + ' ' + (err.error_description || '')).toLowerCase();
+
+    if (lowerMsg.includes('invalid login credentials')) {
+      title = 'بيانات الدخول غير صحيحة';
+      message = 'البريد أو كلمة المرور غير مطابقة. تأكد من إدخال الحساب الصحيح المسجل في Supabase.';
+    } else if (lowerMsg.includes('email not confirmed') || err.error_code === 'email_not_confirmed') {
+      title = 'البريد الإلكتروني غير مؤكد';
+      message = `هذا البريد مسجل ولكن لم يتم تأكيده في Supabase.\nقم بتشغيل أمر التأكيد في SQL Editor:\nUPDATE auth.users SET email_confirmed_at = now() WHERE email = '${err.email || 'البريد المستخدم'}';`;
+    } else if (lowerMsg.includes('jwt') || lowerMsg.includes('token') || err.code === 'PGRST301') {
+      title = 'انتهت صلاحية الجلسة';
+      message = 'انتهت صلاحية رمز الدخول، يرجى إعادة تسجيل الدخول.';
+    } else if (err.code === '42501' || lowerMsg.includes('permission denied') || lowerMsg.includes('row-level security') || lowerMsg.includes('rls')) {
+      title = 'خطأ في صلاحيات قاعدة البيانات (RLS Policy)';
+      message = 'تم حظر الاستعلام بواسطة Row Level Security. تأكد من تشغيل سكريبت صلاحيات الأدمن في Supabase SQL Editor.';
+    } else if (err.code === '42883' || (lowerMsg.includes('function') && lowerMsg.includes('does not exist'))) {
+      title = 'دالة قاعدة البيانات مفقودة';
+      message = 'الدالة المطلوبة (RPC) غير موجودة في قاعدة البيانات. تأكد من تشغيل ملف admin_setup.sql في Supabase SQL Editor.';
+    }
+
+    if (err.details) rawParts.push(`Details: ${err.details}`);
+    if (err.hint) rawParts.push(`Hint: ${err.hint}`);
+    if (err.code) rawParts.push(`Code: ${err.code}`);
+    if (err.status) rawParts.push(`HTTP: ${err.status}`);
+    if (err.message && !rawParts.some(p => p.includes(err.message))) rawParts.push(`Message: ${err.message}`);
+
+    return {
+      title,
+      message,
+      raw: rawParts.join(' | ') || (typeof err === 'object' ? JSON.stringify(err) : String(err)),
+    };
+  }
 
   // --------------------------------------------------------------------------
   // Application State
@@ -499,7 +542,7 @@
   }
 
   // ==========================================================================
-  // AUTHENTICATION
+  // AUTHENTICATION (Live Database Only)
   // ==========================================================================
   async function handleLogin(e) {
     e.preventDefault();
@@ -511,56 +554,74 @@
 
     hide(errorEl);
 
-    // If demo mode or placeholder credentials, login immediately with demo admin
-    if (isDemoMode || !supabase) {
-      currentUser = { id: 'admin-demo-id', email: email || 'admin@gawezeny.com' };
-      adminInfo = { id: 'admin-demo-id', email: email || 'admin@gawezeny.com', display_name: 'أدمن تجريبي', role: 'admin' };
-      showDashboard();
-      showToast('تم تسجيل الدخول في وضع المعاينة التجريبية بنجاح', 'success');
+    if (!supabase) {
+      errorEl.innerHTML = `
+        <div class="login-error-title"><span class="material-icons-round">error</span> خطأ في التهيئة</div>
+        <div>لم يتم تهيئة عميل Supabase. تأكد من صحة المفاتيح في إعدادات الاتصال.</div>
+      `;
+      show(errorEl);
       return;
     }
 
-    btnText.textContent = 'جاري تسجيل الدخول...';
+    btnText.textContent = 'جاري الاتصال والتحقق...';
     show(btnLoader);
     $('#login-btn').disabled = true;
 
     try {
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
-      if (authError) throw authError;
+      if (authError) {
+        authError.email = email;
+        throw authError;
+      }
 
-      // Verify admin status
+      if (!authData?.user) {
+        throw new Error('لم يتم استلام بيانات المستخدم من Supabase');
+      }
+
+      // Verify admin status in admin_users table
       const { data: adminData, error: adminError } = await supabase
         .from('admin_users')
         .select('*')
         .eq('id', authData.user.id)
-        .single();
+        .maybeSingle();
 
-      if (adminError || !adminData) {
+      if (adminError) {
+        console.error('admin_users lookup failed:', adminError);
+        throw new Error(`تعذر قراءة جدول المشرفين (admin_users): ${adminError.message}`);
+      }
+
+      if (!adminData) {
         await supabase.auth.signOut();
-        throw new Error('هذا الحساب ليس لديه صلاحيات إدارية');
+        const err = new Error(
+          `تم تسجيل الدخول بنجاح بحساب (${email})، ولكن هذا الحساب ليس مسجلاً في جدول المشرفين (admin_users).\n` +
+          `قم بإضافته عبر تنفيذ هذا الاستعلام في Supabase SQL Editor:\n` +
+          `INSERT INTO admin_users (id, email, display_name, role) VALUES ('${authData.user.id}', '${email}', 'مدير النظام', 'admin');`
+        );
+        err.user_id = authData.user.id;
+        throw err;
       }
 
       currentUser = authData.user;
       adminInfo = adminData;
       showDashboard();
-      showToast('مرحباً بك في لوحة الإدارة', 'success');
+      showToast(`مرحباً بك ${adminInfo.display_name || 'مدير المنصة'} (متصل بقاعدة البيانات الحية)`, 'success');
     } catch (err) {
-      errorEl.textContent = err.message || 'فشل تسجيل الدخول';
+      console.error('Login error:', err);
+      const parsed = formatDetailedError(err);
+      errorEl.innerHTML = `
+        <div class="login-error-title">
+          <span class="material-icons-round" style="font-size:18px;">error_outline</span>
+          <span>${parsed.title}</span>
+        </div>
+        <div>${parsed.message.replace(/\n/g, '<br>')}</div>
+        ${parsed.raw ? `<div class="login-error-code">${parsed.raw}</div>` : ''}
+      `;
       show(errorEl);
     } finally {
-      btnText.textContent = 'تسجيل الدخول';
+      btnText.textContent = 'تسجيل الدخول (بيانات حية)';
       hide(btnLoader);
       $('#login-btn').disabled = false;
     }
-  }
-
-  function handleDemoLogin() {
-    isDemoMode = true;
-    localStorage.setItem('gawezeny_demo_mode', 'true');
-    currentUser = { id: 'admin-demo-id', email: 'admin@gawezeny.com' };
-    adminInfo = { id: 'admin-demo-id', email: 'admin@gawezeny.com', display_name: 'مدير المنصة (تجريبي)', role: 'admin' };
-    showDashboard();
-    showToast('تم تفعيل وضع المعاينة التفاعلية - جميع الميزات تعمل محلياً', 'info');
   }
 
   async function handleLogout() {
@@ -579,17 +640,17 @@
   }
 
   async function checkSession() {
-    if (isDemoMode || !supabase) return;
+    if (!supabase) return;
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) return;
 
-      const { data: adminData } = await supabase
+      const { data: adminData, error: adminError } = await supabase
         .from('admin_users')
         .select('*')
         .eq('id', session.user.id)
-        .single();
+        .maybeSingle();
 
       if (adminData) {
         currentUser = session.user;
@@ -661,37 +722,40 @@
     try {
       let stats = {};
 
-      if (isDemoMode || !supabase) {
-        // Calculate dynamic stats from mock arrays
-        const pendingReports = mockReports.filter((r) => r.status === 'PENDING').length;
-        const pendingVerif = mockVerifications.filter((v) => ['PENDING', 'MANUAL_REVIEW'].includes(v.status)).length;
-        const verifiedUsers = mockProfiles.filter((p) => p.verification_status === 'VERIFIED').length;
-        const activeSubs = mockProfiles.filter((p) => p.subscription_status === 'ACTIVE').length;
-        const maleUsers = mockProfiles.filter((p) => p.gender === 'MALE').length;
-        const femaleUsers = mockProfiles.filter((p) => p.gender === 'FEMALE').length;
-        const usedVouchers = mockVouchers.filter((v) => v.is_used).length;
-        const unusedVouchers = mockVouchers.filter((v) => !v.is_used).length;
-
-        stats = {
-          total_users: mockProfiles.length * 128 + 42, // Scaled for presentation
-          pending_reports: pendingReports,
-          verified_users: verifiedUsers * 110 + 15,
-          active_subscribers: activeSubs * 85 + 12,
-          male_users: maleUsers * 70,
-          female_users: femaleUsers * 58,
-          total_matches: 486,
-          total_vouchers: mockVouchers.length,
-          used_vouchers: usedVouchers,
-          unused_vouchers: unusedVouchers,
-          users_today: 18,
-          reports_today: 3,
-          pending_verifications: pendingVerif,
-        };
-      } else {
+      try {
         const { data, error } = await supabase.rpc('admin_get_dashboard_stats');
         if (error) throw error;
-        if (!data?.success) throw new Error(data?.error || 'فشل تحميل الإحصائيات');
-        stats = data;
+        stats = data || {};
+      } catch (rpcErr) {
+        console.warn('admin_get_dashboard_stats RPC not found, falling back to direct table queries:', rpcErr);
+        const [
+          { count: totalUsers },
+          { count: verifiedUsers },
+          { count: pendingVerif },
+          { count: pendingReports },
+          { count: activeSubs },
+          { count: totalVouchers },
+          { count: usedVouchers }
+        ] = await Promise.all([
+          supabase.from('profiles').select('id', { count: 'exact', head: true }),
+          supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('verification_status', 'VERIFIED'),
+          supabase.from('identity_verifications').select('id', { count: 'exact', head: true }).in('status', ['PENDING', 'MANUAL_REVIEW']),
+          supabase.from('user_reports').select('id', { count: 'exact', head: true }).eq('status', 'PENDING'),
+          supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('subscription_status', 'ACTIVE'),
+          supabase.from('voucher_codes').select('code', { count: 'exact', head: true }),
+          supabase.from('voucher_codes').select('code', { count: 'exact', head: true }).eq('is_used', true),
+        ]);
+
+        stats = {
+          total_users: totalUsers || 0,
+          verified_users: verifiedUsers || 0,
+          pending_verifications: pendingVerif || 0,
+          pending_reports: pendingReports || 0,
+          active_subscribers: activeSubs || 0,
+          total_vouchers: totalVouchers || 0,
+          used_vouchers: usedVouchers || 0,
+          unused_vouchers: Math.max(0, (totalVouchers || 0) - (usedVouchers || 0)),
+        };
       }
 
       $('#stat-total-users').textContent = stats.total_users ?? 0;
@@ -738,32 +802,25 @@
     tbody.innerHTML = '<tr class="empty-row"><td colspan="7">جاري التحميل...</td></tr>';
 
     try {
+      if (!supabase) throw new Error('عميل Supabase غير متصل');
+
       const statusFilter = $('#reports-status-filter').value;
-      let reports = [];
+      let query = supabase
+        .from('user_reports')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
 
-      if (isDemoMode || !supabase) {
-        reports = [...mockReports];
-        if (statusFilter !== 'ALL') {
-          reports = reports.filter((r) => r.status === statusFilter);
-        }
-      } else {
-        let query = supabase
-          .from('user_reports')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(100);
-
-        if (statusFilter !== 'ALL') {
-          query = query.eq('status', statusFilter);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-        reports = data || [];
+      if (statusFilter !== 'ALL') {
+        query = query.eq('status', statusFilter);
       }
 
+      const { data, error } = await query;
+      if (error) throw error;
+      const reports = data || [];
+
       if (!reports || reports.length === 0) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد بلاغات تطابق التصفية</td></tr>';
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد بلاغات مسجلة في قاعدة البيانات</td></tr>';
         return;
       }
 
@@ -835,30 +892,24 @@
     tbody.innerHTML = '<tr class="empty-row"><td colspan="7">جاري التحميل...</td></tr>';
 
     try {
+      if (!supabase) throw new Error('عميل Supabase غير متصل');
+
       const statusFilter = $('#vouchers-status-filter').value;
-      let vouchers = [];
+      let query = supabase
+        .from('voucher_codes')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
 
-      if (isDemoMode || !supabase) {
-        vouchers = [...mockVouchers];
-        if (statusFilter === 'AVAILABLE') vouchers = vouchers.filter((v) => !v.is_used);
-        else if (statusFilter === 'USED') vouchers = vouchers.filter((v) => v.is_used);
-      } else {
-        let query = supabase
-          .from('voucher_codes')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(200);
+      if (statusFilter === 'AVAILABLE') query = query.eq('is_used', false);
+      else if (statusFilter === 'USED') query = query.eq('is_used', true);
 
-        if (statusFilter === 'AVAILABLE') query = query.eq('is_used', false);
-        else if (statusFilter === 'USED') query = query.eq('is_used', true);
-
-        const { data, error } = await query;
-        if (error) throw error;
-        vouchers = data || [];
-      }
+      const { data, error } = await query;
+      if (error) throw error;
+      const vouchers = data || [];
 
       if (!vouchers || vouchers.length === 0) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد قسائم تطابق التصفية</td></tr>';
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد قسائم مسجلة في قاعدة البيانات</td></tr>';
         return;
       }
 
@@ -910,38 +961,21 @@
     const notes = $('#voucher-notes').value.trim() || null;
 
     try {
-      let generatedCodes = [];
+      if (!supabase) throw new Error('عميل Supabase غير متصل');
 
-      if (isDemoMode || !supabase) {
-        for (let i = 0; i < count; i++) {
-          const randHex = Math.random().toString(36).substring(2, 8).toUpperCase();
-          const code = `${prefix.toUpperCase()}-${randHex}`;
-          mockVouchers.unshift({
-            code,
-            tier,
-            duration_days: durationDays,
-            amount_egp: amountEgp,
-            is_used: false,
-            used_by: null,
-            created_at: new Date().toISOString(),
-          });
-          generatedCodes.push(code);
-        }
-      } else {
-        const { data, error } = await supabase.rpc('admin_generate_vouchers', {
-          p_tier: tier,
-          p_count: count,
-          p_duration_days: durationDays,
-          p_amount_egp: amountEgp,
-          p_prefix: prefix,
-          p_expires_at: expiresAt,
-          p_notes: notes,
-        });
+      const { data, error } = await supabase.rpc('admin_generate_vouchers', {
+        p_tier: tier,
+        p_count: count,
+        p_duration_days: durationDays,
+        p_amount_egp: amountEgp,
+        p_prefix: prefix,
+        p_expires_at: expiresAt,
+        p_notes: notes,
+      });
 
-        if (error) throw error;
-        if (!data?.success) throw new Error(data?.error || 'فشل إنشاء القسائم');
-        generatedCodes = data.codes || [];
-      }
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'فشل إنشاء القسائم');
+      const generatedCodes = data.codes || [];
 
       // Show generated codes result in modal
       hide($('#generate-vouchers-form'));
@@ -961,39 +995,42 @@
   }
 
   // ==========================================================================
-  // VERIFICATIONS PAGE
+  // VERIFICATIONS PAGE (Live Database Only)
   // ==========================================================================
   async function loadVerifications() {
     const grid = $('#verifications-grid');
-    grid.innerHTML = '<div class="empty-state"><span class="material-icons-round">hourglass_empty</span><p>جاري التحميل...</p></div>';
+    grid.innerHTML = '<div class="empty-state"><span class="material-icons-round">hourglass_empty</span><p>جاري تحميل طلبات التحقق من قاعدة البيانات الحية...</p></div>';
 
     try {
+      if (!supabase) throw new Error('عميل Supabase غير متصل. يرجى التحقق من الإعدادات.');
+
       const statusFilter = $('#verifications-status-filter').value;
-      let verifications = [];
+      let query = supabase
+        .from('identity_verifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-      if (isDemoMode || !supabase) {
-        verifications = [...mockVerifications];
-        if (statusFilter !== 'ALL') {
-          verifications = verifications.filter((v) => v.status === statusFilter);
-        }
-      } else {
-        let query = supabase
-          .from('identity_verifications')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50);
-
-        if (statusFilter !== 'ALL') {
-          query = query.eq('status', statusFilter);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-        verifications = data || [];
+      if (statusFilter === 'PENDING') {
+        query = query.in('status', ['PENDING', 'MANUAL_REVIEW']);
+      } else if (statusFilter === 'APPROVED' || statusFilter === 'VERIFIED') {
+        query = query.in('status', ['VERIFIED', 'APPROVED']);
+      } else if (statusFilter === 'REJECTED' || statusFilter === 'FAILED') {
+        query = query.in('status', ['FAILED', 'REJECTED']);
       }
 
+      const { data, error } = await query;
+      if (error) throw error;
+      const verifications = data || [];
+
       if (!verifications || verifications.length === 0) {
-        grid.innerHTML = '<div class="empty-state"><span class="material-icons-round">check_circle</span><p>لا توجد طلبات تحقق تطابق التصفية</p></div>';
+        grid.innerHTML = `
+          <div class="empty-state">
+            <span class="material-icons-round" style="color:var(--text-muted); font-size:48px;">inbox</span>
+            <p style="font-weight:700; margin-top:8px;">لا توجد طلبات تحقق تطابق التصفية في قاعدة البيانات الحية</p>
+            <span style="font-size:12px; color:var(--text-muted);">عندما يقوم أي مستخدم برفع بطاقة الهوية والصورة، سيظهر طلبه هنا فوراً.</span>
+          </div>
+        `;
         return;
       }
 
@@ -1014,7 +1051,7 @@
           <div class="verification-card" id="verif-card-${v.id}" style="animation-delay: ${idx * 0.05}s">
             <div class="verification-card-header">
               <div class="verification-user-info">
-                <span class="user-name"><strong>${v.profile?.full_name || 'مستخدم مسجل'}</strong></span>
+                <span class="user-name"><strong>${v.profile?.full_name || 'مستخدم (معرف: ' + v.user_id.substring(0, 8) + '...)'}</strong></span>
                 <span class="user-date">${formatDateTime(v.created_at)}</span>
               </div>
               ${verificationStatusBadge(v.status)}
@@ -1022,13 +1059,13 @@
             <div class="verification-images">
               <div class="image-panel">
                 ${idCardUrl
-                  ? `<img src="${idCardUrl}" alt="بطاقة الهوية الوطنية" loading="lazy"><span class="image-label">بطاقة الرقم القومي</span>`
+                  ? `<img src="${idCardUrl}" alt="بطاقة الهوية الوطنية" loading="lazy" onclick="window.open('${idCardUrl}', '_blank')" style="cursor:zoom-in;"><span class="image-label">بطاقة الرقم القومي (انقر للتكبير)</span>`
                   : '<div class="no-image"><span class="material-icons-round" style="font-size:32px;display:block;margin-bottom:4px">badge</span>لا توجد صورة</div>'
                 }
               </div>
               <div class="image-panel">
                 ${selfieUrl
-                  ? `<img src="${selfieUrl}" alt="الصورة الشخصية" loading="lazy"><span class="image-label">صورة السيلفي المباشرة</span>`
+                  ? `<img src="${selfieUrl}" alt="الصورة الشخصية" loading="lazy" onclick="window.open('${selfieUrl}', '_blank')" style="cursor:zoom-in;"><span class="image-label">صورة السيلفي المباشرة (انقر للتكبير)</span>`
                   : '<div class="no-image"><span class="material-icons-round" style="font-size:32px;display:block;margin-bottom:4px">face</span>لا توجد صورة</div>'
                 }
               </div>
@@ -1041,8 +1078,8 @@
                 <button class="action-btn action-btn-reject" onclick="adminActions.rejectVerification('${v.id}')">
                   <span class="material-icons-round">close</span> رفض الطلب
                 </button>
-              ` : '<span class="badge badge-muted">تمت المراجعة</span>'}
-              ${v.face_match_score != null ? `<span class="verification-score">نسبة التطابق: <strong>${v.face_match_score}%</strong></span>` : ''}
+              ` : `<span class="badge ${v.status === 'VERIFIED' ? 'badge-success' : 'badge-danger'}">تم الحسم: ${VERIFICATION_STATUS_LABELS[v.status] || v.status}</span>`}
+              ${v.rejection_reason ? `<div class="rejection-reason-notice" style="color:#dc3545; font-size:12px; margin-top:8px; width:100%;"><span class="material-icons-round" style="font-size:14px; vertical-align:middle;">error_outline</span> سبب الرفض: <strong>${v.rejection_reason}</strong></div>` : ''}
             </div>
           </div>
         `;
@@ -1050,8 +1087,19 @@
 
       grid.innerHTML = html;
     } catch (err) {
-      grid.innerHTML = `<div class="empty-state"><span class="material-icons-round">error</span><p>خطأ: ${err.message}</p></div>`;
-      showToast('فشل تحميل طلبات التحقق: ' + err.message, 'error');
+      console.error('loadVerifications error:', err);
+      const parsed = formatDetailedError(err);
+      grid.innerHTML = `
+        <div class="empty-state" style="border:1px solid #f5c2c7; background:#fff2f2; border-radius:12px; padding:24px; text-align:right;">
+          <div style="display:flex; align-items:center; gap:8px; color:#842029; font-weight:700; font-size:16px;">
+            <span class="material-icons-round" style="color:#dc3545; font-size:28px;">error</span>
+            <span>${parsed.title}</span>
+          </div>
+          <p style="color:#b02a37; margin:10px 0; font-size:14px; line-height:1.6;">${parsed.message}</p>
+          ${parsed.raw ? `<div class="login-error-code">${parsed.raw}</div>` : ''}
+        </div>
+      `;
+      showToast(`فشل جلب طلبات التحقق: ${parsed.message}`, 'error');
     }
   }
 
@@ -1065,44 +1113,32 @@
     tbody.innerHTML = '<tr class="empty-row"><td colspan="9">جاري التحميل...</td></tr>';
 
     try {
+      if (!supabase) throw new Error('عميل Supabase غير متصل');
+
       const searchTerm = $('#users-search').value.trim().toLowerCase();
       const genderFilter = $('#users-gender-filter').value;
       const verificationFilter = $('#users-verification-filter').value;
       const subscriptionFilter = $('#users-subscription-filter').value;
 
-      let users = [];
+      let query = supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
 
-      if (isDemoMode || !supabase) {
-        users = mockProfiles.filter((u) => {
-          if (searchTerm && !u.full_name.toLowerCase().includes(searchTerm) && !u.residence_city.toLowerCase().includes(searchTerm)) {
-            return false;
-          }
-          if (genderFilter !== 'ALL' && u.gender !== genderFilter) return false;
-          if (verificationFilter !== 'ALL' && u.verification_status !== verificationFilter) return false;
-          if (subscriptionFilter !== 'ALL' && u.subscription_status !== subscriptionFilter) return false;
-          return true;
-        });
-      } else {
-        let query = supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(100);
-
-        if (searchTerm) {
-          query = query.or(`full_name.ilike.%${searchTerm}%,residence_city.ilike.%${searchTerm}%`);
-        }
-        if (genderFilter !== 'ALL') query = query.eq('gender', genderFilter);
-        if (verificationFilter !== 'ALL') query = query.eq('verification_status', verificationFilter);
-        if (subscriptionFilter !== 'ALL') query = query.eq('subscription_status', subscriptionFilter);
-
-        const { data, error } = await query;
-        if (error) throw error;
-        users = data || [];
+      if (searchTerm) {
+        query = query.or(`full_name.ilike.%${searchTerm}%,residence_city.ilike.%${searchTerm}%`);
       }
+      if (genderFilter !== 'ALL') query = query.eq('gender', genderFilter);
+      if (verificationFilter !== 'ALL') query = query.eq('verification_status', verificationFilter);
+      if (subscriptionFilter !== 'ALL') query = query.eq('subscription_status', subscriptionFilter);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      const users = data || [];
 
       if (!users || users.length === 0) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="9">لا يوجد مستخدمون مطابقون لمعايير البحث</td></tr>';
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="9">لا يوجد مستخدمون مطابقون لمعايير البحث في قاعدة البيانات</td></tr>';
         return;
       }
 
@@ -1151,32 +1187,25 @@
       if (!confirmed) return;
 
       try {
-        if (isDemoMode || !supabase) {
-          const user = mockProfiles.find((u) => u.id === userId);
-          if (user) {
-            user.subscription_status = 'CANCELLED';
-            user.full_name = `[محظور] ${user.full_name}`;
-          }
-          if (reportId) {
-            const report = mockReports.find((r) => r.id === reportId);
-            if (report) report.status = 'RESOLVED_BLOCKED';
-          }
-        } else {
-          const { data, error } = await supabase.rpc('admin_block_user', {
-            p_target_user_id: userId,
-            p_report_id: reportId,
-            p_reason: 'تم الحظر بواسطة الإدارة',
-          });
-          if (error) throw error;
-          if (!data?.success) throw new Error(data?.error);
-        }
+        if (!supabase) throw new Error('عميل Supabase غير متصل');
 
-        showToast('تم حظر المستخدم بنجاح', 'success');
+        const { data, error } = await supabase.rpc('admin_block_user', {
+          p_target_user_id: userId,
+          p_report_id: reportId,
+          p_reason: 'تم الحظر بواسطة الإدارة',
+        });
+        if (error) throw error;
+        if (data && data.success === false) throw new Error(data.error || 'فشلت عملية الحظر');
+
+        showToast('تم حظر المستخدم بنجاح في قاعدة البيانات', 'success');
         profileCache.delete(userId);
         loadPageData(currentPage);
         loadOverview();
       } catch (err) {
-        showToast('فشل حظر المستخدم: ' + err.message, 'error');
+        console.error('blockUser error:', err);
+        const parsed = formatDetailedError(err);
+        showToast('فشل حظر المستخدم: ' + parsed.message, 'error');
+        alert(`❌ تعذر حظر المستخدم:\n\n${parsed.title}\n${parsed.message}\n\n${parsed.raw ? `[تفاصيل الخطأ: ${parsed.raw}]` : ''}`);
       }
     },
 
@@ -1188,33 +1217,24 @@
       if (!confirmed) return;
 
       try {
-        if (isDemoMode || !supabase) {
-          const idx = mockProfiles.findIndex((u) => u.id === userId);
-          if (idx !== -1) {
-            mockProfiles[idx].full_name = '[حساب محذوف]';
-            mockProfiles[idx].photo_url = null;
-            mockProfiles[idx].subscription_status = 'CANCELLED';
-            mockProfiles[idx].verification_status = 'FAILED';
-          }
-          if (reportId) {
-            const report = mockReports.find((r) => r.id === reportId);
-            if (report) report.status = 'RESOLVED_DELETED';
-          }
-        } else {
-          const { data, error } = await supabase.rpc('admin_delete_account', {
-            p_target_user_id: userId,
-            p_report_id: reportId,
-          });
-          if (error) throw error;
-          if (!data?.success) throw new Error(data?.error);
-        }
+        if (!supabase) throw new Error('عميل Supabase غير متصل');
 
-        showToast('تم حذف الحساب بنجاح', 'success');
+        const { data, error } = await supabase.rpc('admin_delete_account', {
+          p_target_user_id: userId,
+          p_report_id: reportId,
+        });
+        if (error) throw error;
+        if (data && data.success === false) throw new Error(data.error || 'فشلت عملية حذف الحساب');
+
+        showToast('تم حذف الحساب بنجاح من قاعدة البيانات', 'success');
         profileCache.delete(userId);
         loadPageData(currentPage);
         loadOverview();
       } catch (err) {
-        showToast('فشل حذف الحساب: ' + err.message, 'error');
+        console.error('deleteAccount error:', err);
+        const parsed = formatDetailedError(err);
+        showToast('فشل حذف الحساب: ' + parsed.message, 'error');
+        alert(`❌ تعذر حذف الحساب:\n\n${parsed.title}\n${parsed.message}\n\n${parsed.raw ? `[تفاصيل الخطأ: ${parsed.raw}]` : ''}`);
       }
     },
 
@@ -1227,99 +1247,149 @@
       if (!confirmed) return;
 
       try {
-        if (isDemoMode || !supabase) {
-          const report = mockReports.find((r) => r.id === reportId);
-          if (report) report.status = 'DISMISSED';
-        } else {
-          const { data, error } = await supabase.rpc('admin_dismiss_report', {
-            p_report_id: reportId,
-          });
-          if (error) throw error;
-          if (!data?.success) throw new Error(data?.error);
-        }
+        if (!supabase) throw new Error('عميل Supabase غير متصل');
+
+        const { data, error } = await supabase.rpc('admin_dismiss_report', {
+          p_report_id: reportId,
+        });
+        if (error) throw error;
+        if (data && data.success === false) throw new Error(data.error || 'فشلت عملية رفض البلاغ');
 
         showToast('تم رفض البلاغ وإغلاقه', 'info');
         loadReports();
         loadOverview();
       } catch (err) {
-        showToast('فشل رفض البلاغ: ' + err.message, 'error');
+        console.error('dismissReport error:', err);
+        const parsed = formatDetailedError(err);
+        showToast('فشل رفض البلاغ: ' + parsed.message, 'error');
+        alert(`❌ تعذر رفض البلاغ:\n\n${parsed.title}\n${parsed.message}\n\n${parsed.raw ? `[تفاصيل الخطأ: ${parsed.raw}]` : ''}`);
       }
     },
 
     async approveVerification(verificationId) {
       const confirmed = await showConfirm(
         'قبول طلب التحقق',
-        'هل تأكدت من مطابقة بطاقة الرقم القومي مع الصورة الشخصية وتريد توثيق الحساب؟',
+        'هل تأكدت من مطابقة بطاقة الرقم القومي مع الصورة الشخصية وتريد توثيق الحساب بالعلامة الزرقاء؟',
         'btn-success'
       );
       if (!confirmed) return;
 
       try {
-        if (isDemoMode || !supabase) {
-          const verif = mockVerifications.find((v) => v.id === verificationId);
-          if (verif) {
-            verif.status = 'VERIFIED';
-            const user = mockProfiles.find((u) => u.id === verif.user_id);
-            if (user) user.verification_status = 'VERIFIED';
-          }
-        } else {
+        let done = false;
+
+        // Attempt 1: Call RPC admin_review_verification
+        try {
           const { data, error } = await supabase.rpc('admin_review_verification', {
             p_verification_id: verificationId,
             p_action: 'APPROVE',
           });
           if (error) throw error;
-          if (!data?.success) throw new Error(data?.error);
+          if (data && data.success === false) throw new Error(data.error || 'فشلت عملية قبول التحقق');
+          done = true;
+        } catch (rpcErr) {
+          console.warn('RPC admin_review_verification failed, falling back to direct table updates:', rpcErr);
+
+          // Attempt 2: Direct updates on identity_verifications & profiles
+          const { data: vRecord, error: fetchErr } = await supabase
+            .from('identity_verifications')
+            .select('user_id')
+            .eq('id', verificationId)
+            .single();
+
+          if (fetchErr) throw fetchErr;
+
+          const { error: vErr } = await supabase
+            .from('identity_verifications')
+            .update({ status: 'VERIFIED' })
+            .eq('id', verificationId);
+
+          if (vErr) throw vErr;
+
+          if (vRecord?.user_id) {
+            const { error: pErr } = await supabase
+              .from('profiles')
+              .update({ verification_status: 'VERIFIED', updated_at: new Date().toISOString() })
+              .eq('id', vRecord.user_id);
+
+            if (pErr) console.warn('Profile sync warning:', pErr);
+          }
+          done = true;
         }
 
-        showToast('تم قبول التحقق وتوثيق الحساب بالعلامة الزرقاء', 'success');
+        showToast('تم قبول التحقق وتوثيق الحساب بالعلامة الزرقاء بنجاح!', 'success');
         loadVerifications();
         loadOverview();
       } catch (err) {
-        showToast('فشل قبول التحقق: ' + err.message, 'error');
+        console.error('approveVerification error:', err);
+        const parsed = formatDetailedError(err);
+        showToast(`فشل قبول التحقق: ${parsed.message}`, 'error');
+        alert(`❌ تعذر قبول طلب التوثيق:\n\n${parsed.title}\n${parsed.message}\n\n${parsed.raw ? `[تفاصيل الخطأ: ${parsed.raw}]` : ''}`);
       }
     },
 
     async rejectVerification(verificationId) {
-      const confirmed = await showConfirm(
-        'رفض طلب التحقق',
-        'هل تريد رفض طلب التحقق هذا لعدم تطابق المستندات أو عدم وضوحها؟'
-      );
-      if (!confirmed) return;
+      const defaultReason = 'عدم وضوح صورة بطاقة الرقم القومي أو عدم تطابقها مع الصورة الشخصية';
+      const reasonInput = prompt('يرجى إدخال سبب رفض طلب التوثيق (سيظهر للمستخدم في حسابه):', defaultReason);
+      if (reasonInput === null) return; // User cancelled prompt
+
+      const finalReason = reasonInput.trim() || defaultReason;
 
       try {
-        if (isDemoMode || !supabase) {
-          const verif = mockVerifications.find((v) => v.id === verificationId);
-          if (verif) {
-            verif.status = 'FAILED';
-            const user = mockProfiles.find((u) => u.id === verif.user_id);
-            if (user) user.verification_status = 'FAILED';
-          }
-        } else {
+        try {
           const { data, error } = await supabase.rpc('admin_review_verification', {
             p_verification_id: verificationId,
             p_action: 'REJECT',
-            p_rejection_reason: 'تم الرفض بواسطة مراجعة الإدارة لعدم وضوح المستندات',
+            p_rejection_reason: finalReason,
           });
           if (error) throw error;
-          if (!data?.success) throw new Error(data?.error);
+          if (data && data.success === false) throw new Error(data.error || 'فشلت عملية رفض التحقق');
+        } catch (rpcErr) {
+          console.warn('RPC admin_review_verification failed, falling back to direct table updates:', rpcErr);
+
+          const { data: vRecord, error: fetchErr } = await supabase
+            .from('identity_verifications')
+            .select('user_id')
+            .eq('id', verificationId)
+            .single();
+
+          if (fetchErr) throw fetchErr;
+
+          const { error: vErr } = await supabase
+            .from('identity_verifications')
+            .update({
+              status: 'FAILED',
+              rejection_reason: finalReason,
+            })
+            .eq('id', verificationId);
+
+          if (vErr) throw vErr;
+
+          if (vRecord?.user_id) {
+            await supabase
+              .from('profiles')
+              .update({ verification_status: 'FAILED', updated_at: new Date().toISOString() })
+              .eq('id', vRecord.user_id);
+          }
         }
 
         showToast('تم رفض طلب التحقق', 'warning');
         loadVerifications();
         loadOverview();
       } catch (err) {
-        showToast('فشل رفض التحقق: ' + err.message, 'error');
+        console.error('rejectVerification error:', err);
+        const parsed = formatDetailedError(err);
+        showToast(`فشل رفض التحقق: ${parsed.message}`, 'error');
+        alert(`❌ تعذر رفض طلب التوثيق:\n\n${parsed.title}\n${parsed.message}\n\n${parsed.raw ? `[تفاصيل الخطأ: ${parsed.raw}]` : ''}`);
       }
     },
   };
 
   // ==========================================================================
-  // CONFIGURATION MODAL (Supabase Credentials & Demo Toggle)
+  // CONFIGURATION MODAL (Supabase Credentials)
   // ==========================================================================
   function openConfigModal() {
-    $('#cfg-supabase-url').value = currentSupabaseUrl.includes('placeholder') ? '' : currentSupabaseUrl;
-    $('#cfg-supabase-key').value = currentSupabaseKey.includes('placeholder') ? '' : currentSupabaseKey;
-    $('#cfg-demo-toggle').checked = isDemoMode;
+    if ($('#cfg-supabase-url')) $('#cfg-supabase-url').value = currentSupabaseUrl;
+    if ($('#cfg-supabase-key')) $('#cfg-supabase-key').value = currentSupabaseKey;
     show($('#config-modal'));
   }
 
@@ -1331,22 +1401,18 @@
     e.preventDefault();
     const newUrl = $('#cfg-supabase-url').value.trim();
     const newKey = $('#cfg-supabase-key').value.trim();
-    const forceDemo = $('#cfg-demo-toggle').checked;
 
-    if (forceDemo || !newUrl) {
-      isDemoMode = true;
-      localStorage.setItem('gawezeny_demo_mode', 'true');
-      showToast('تم تفعيل وضع المعاينة التجريبية (Demo Mode)', 'info');
-    } else {
-      isDemoMode = false;
-      localStorage.setItem('gawezeny_demo_mode', 'false');
-      localStorage.setItem('gawezeny_supabase_url', newUrl);
-      localStorage.setItem('gawezeny_supabase_anon_key', newKey);
-      currentSupabaseUrl = newUrl;
-      currentSupabaseKey = newKey;
-      initSupabaseClient();
-      showToast('تم حفظ إعدادات Supabase وتفعيل الاتصال الحي', 'success');
+    if (!newUrl || !newKey) {
+      showToast('يرجى إدخال رابط المشروع ومفتاح Supabase معاً', 'warning');
+      return;
     }
+
+    localStorage.setItem('gawezeny_supabase_url', newUrl);
+    localStorage.setItem('gawezeny_supabase_anon_key', newKey);
+    currentSupabaseUrl = newUrl;
+    currentSupabaseKey = newKey;
+    initSupabaseClient();
+    showToast('تم حفظ إعدادات Supabase وتطبيق الاتصال الحي بنجاح', 'success');
 
     closeConfigModal();
     updateModeBadge();
@@ -1360,7 +1426,6 @@
     localStorage.removeItem('gawezeny_demo_mode');
     currentSupabaseUrl = typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL ? SUPABASE_URL : DEFAULT_SUPABASE_URL;
     currentSupabaseKey = typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY ? SUPABASE_ANON_KEY : DEFAULT_SUPABASE_KEY;
-    isDemoMode = currentSupabaseUrl.includes('placeholder');
     initSupabaseClient();
     closeConfigModal();
     updateModeBadge();
@@ -1372,9 +1437,9 @@
   // EVENT LISTENERS
   // ==========================================================================
   function initEventListeners() {
-    // Login form & Demo Login
-    $('#login-form').addEventListener('submit', handleLogin);
-    $('#demo-login-btn').addEventListener('click', handleDemoLogin);
+    // Login form
+    if ($('#login-form')) $('#login-form').addEventListener('submit', handleLogin);
+    if ($('#demo-login-btn')) $('#demo-login-btn').addEventListener('click', () => {});
 
     // Password toggle
     $('#toggle-password').addEventListener('click', () => {

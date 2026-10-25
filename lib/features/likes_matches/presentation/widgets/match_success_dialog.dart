@@ -5,12 +5,19 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/preview/preview_config.dart';
+import '../../../../core/preview/preview_mock_data.dart';
+import '../../../chat/data/chat_repository.dart';
+import '../../../chat/domain/chat_message.dart';
 import '../../../chat/presentation/chat_inbox_screen.dart';
+import '../../../chat/presentation/chat_room_screen.dart';
 import '../../../profile/domain/user_profile.dart';
+import '../../../profile/presentation/profile_controller.dart';
 import '../../../verification/presentation/identity_verification_screen.dart';
 
 /// Celebratory Matrimonial Match Dialog displayed immediately when a mutual like is formed.
 class MatchSuccessDialog extends ConsumerWidget {
+  final String? matchId;
   final UserProfile partnerProfile;
   final String? partnerPhotoUrl;
   final String? currentUserPhotoUrl;
@@ -18,6 +25,7 @@ class MatchSuccessDialog extends ConsumerWidget {
 
   const MatchSuccessDialog({
     super.key,
+    this.matchId,
     required this.partnerProfile,
     this.partnerPhotoUrl,
     this.currentUserPhotoUrl,
@@ -27,6 +35,7 @@ class MatchSuccessDialog extends ConsumerWidget {
   /// Static helper to display the dialog with smooth modal animation.
   static Future<void> show(
     BuildContext context, {
+    String? matchId,
     required UserProfile partnerProfile,
     String? partnerPhotoUrl,
     String? currentUserPhotoUrl,
@@ -38,6 +47,7 @@ class MatchSuccessDialog extends ConsumerWidget {
       barrierColor: Colors.black.withValues(alpha: 0.65),
       transitionDuration: const Duration(milliseconds: 350),
       pageBuilder: (ctx, anim1, anim2) => MatchSuccessDialog(
+        matchId: matchId,
         partnerProfile: partnerProfile,
         partnerPhotoUrl: partnerPhotoUrl,
         currentUserPhotoUrl: currentUserPhotoUrl,
@@ -221,22 +231,70 @@ class MatchSuccessDialog extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(14.r),
                     ),
                   ),
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.of(context).pop();
 
-                    // Check if current user has verified identity via metadata
-                    final isUserVerified = currentUser?.appMetadata['is_verified'] == true;
+                    final currentProfile = ref.read(currentUserProfileProvider);
+                    final isUserVerified = kPreviewMode ||
+                        currentProfile?.verificationStatus ==
+                            VerificationStatusType.verified ||
+                        currentUser?.appMetadata['is_verified'] == true;
 
-                    if (isUserVerified) {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const ChatInboxScreen(),
-                        ),
-                      );
-                    } else {
+                    if (!isUserVerified) {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => const IdentityVerificationScreen(),
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (matchId != null && matchId!.isNotEmpty) {
+                      final chatRepo = ref.read(chatRepositoryProvider);
+                      final currentUid = currentUser?.id ??
+                          (kPreviewMode ? PreviewMockData.currentUserId : '');
+                      final authResult = await chatRepo.getOrCreateConversation(
+                        matchId: matchId!,
+                        partnerId: partnerProfile.id,
+                      );
+
+                      if (context.mounted) {
+                        if (authResult.isAllowed &&
+                            authResult.conversationId != null) {
+                          final conversation = Conversation(
+                            id: authResult.conversationId!,
+                            matchId: matchId!,
+                            userOneId: currentUid,
+                            userTwoId: partnerProfile.id,
+                            partnerId: partnerProfile.id,
+                            partnerName: partnerProfile.fullName,
+                            partnerPhotoUrl: partnerPhotoUrl,
+                            partnerIsVerified: partnerProfile
+                                    .verificationStatus ==
+                                VerificationStatusType.verified,
+                            lastMessageAt: DateTime.now(),
+                            createdAt: DateTime.now(),
+                          );
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  ChatRoomScreen(conversation: conversation),
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(authResult.errorMessage ??
+                                  'تعذر بدء المحادثة حالياً'),
+                              backgroundColor: AppColors.errorRed,
+                            ),
+                          );
+                        }
+                      }
+                    } else {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ChatInboxScreen(),
                         ),
                       );
                     }

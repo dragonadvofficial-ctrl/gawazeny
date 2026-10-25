@@ -259,13 +259,13 @@ class PreviewNavigatorSheet extends ConsumerWidget {
                     ),
 
                     // ========================================================
-                    // 4. AI IDENTITY VERIFICATION
+                    // 4. IDENTITY VERIFICATION (MANUAL ADMIN REVIEW)
                     // ========================================================
-                    _buildSectionHeader('4. توثيق الهوية بالذكاء الاصطناعي', Icons.verified_user_rounded),
+                    _buildSectionHeader('4. توثيق الحساب (مراجعة الإدارة)', Icons.verified_user_rounded),
                     _buildItemCard(
                       context,
                       number: '9a',
-                      title: 'توثيق الهوية: خطوة رفع البطاقة (ID Upload)',
+                      title: 'توثيق الحساب: خطوة رفع البطاقة (ID Upload)',
                       subtitle: 'إرشادات التقاط صورة بطاقة الرقم القومي المصرية بوضوح',
                       icon: Icons.credit_card_rounded,
                       onTap: () {
@@ -281,8 +281,8 @@ class PreviewNavigatorSheet extends ConsumerWidget {
                     _buildItemCard(
                       context,
                       number: '9b',
-                      title: 'توثيق الهوية: خطوة السيلفي (Selfie Step)',
-                      subtitle: 'التقاط الصورة الشخصية الحية لمطابقتها مع البطاقة',
+                      title: 'توثيق الحساب: خطوة الصورة الشخصية (Photo Step)',
+                      subtitle: 'التقاط الصورة الشخصية الحديثة للمطابقة اليدوية من الإدارة',
                       icon: Icons.camera_alt_outlined,
                       onTap: () {
                         ref.read(verificationControllerProvider.notifier).setStepForPreview(
@@ -297,15 +297,14 @@ class PreviewNavigatorSheet extends ConsumerWidget {
                     _buildItemCard(
                       context,
                       number: '9c',
-                      title: 'توثيق الهوية: نتيجة النجاح (VERIFIED)',
-                      subtitle: '«تم التوثيق بنجاح! ✅» بنسبة تطابق وجه 96% وحيوية نشطة',
-                      icon: Icons.check_circle_outline_rounded,
-                      badgeColor: AppColors.successGreen,
+                      title: 'توثيق الحساب: قيد المراجعة الإدارية (PENDING)',
+                      subtitle: '«تم استلام طلب توثيق حسابك بنجاح. برجاء الانتظار، سيتم مراجعة طلبك خلال 15 دقيقة.»',
+                      icon: Icons.hourglass_top_rounded,
+                      badgeColor: AppColors.warningOrange,
                       onTap: () {
                         ref.read(verificationControllerProvider.notifier).setResultForPreview(
-                              status: VerificationStatusType.verified,
-                              score: 96.0,
-                              name: 'أحمد مصطفى كامل',
+                              status: VerificationStatusType.pending,
+                              registeredName: 'أحمد محمود القاضي',
                             );
                         Navigator.of(context).pop();
                         Navigator.of(context).push(
@@ -316,15 +315,33 @@ class PreviewNavigatorSheet extends ConsumerWidget {
                     _buildItemCard(
                       context,
                       number: '9d',
-                      title: 'توثيق الهوية: نتيجة عدم التطابق (FAILED)',
-                      subtitle: 'مقارنة الصورتين جنباً إلى جنب مع سبب الرفض وإعادة المحاولة',
+                      title: 'توثيق الحساب: تم التوثيق والاعتماد (VERIFIED)',
+                      subtitle: '«تم توثيق حسابك بنجاح! ✅» مع شارة التوثيق والاسم المسجل',
+                      icon: Icons.check_circle_outline_rounded,
+                      badgeColor: AppColors.successGreen,
+                      onTap: () {
+                        ref.read(verificationControllerProvider.notifier).setResultForPreview(
+                              status: VerificationStatusType.verified,
+                              registeredName: 'أحمد محمود القاضي',
+                            );
+                        Navigator.of(context).pop();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const IdentityVerificationScreen()),
+                        );
+                      },
+                    ),
+                    _buildItemCard(
+                      context,
+                      number: '9e',
+                      title: 'توثيق الحساب: تم الرفض من الإدارة (REJECTED)',
+                      subtitle: 'عرض سبب الرفض المحدد من قِبل الأدمن مع إمكانية إعادة التقديم',
                       icon: Icons.error_outline_rounded,
                       badgeColor: AppColors.errorRed,
                       onTap: () {
                         ref.read(verificationControllerProvider.notifier).setResultForPreview(
                               status: VerificationStatusType.failed,
-                              score: 42.0,
-                              errorMessage: 'عدم تطابق ملامح الوجه مع الصورة في بطاقة الرقم القومي.',
+                              rejectionReason: 'عدم وضوح صورة بطاقة الرقم القومي أو انتهاء صلاحيتها.',
+                              registeredName: 'أحمد محمود القاضي',
                             );
                         Navigator.of(context).pop();
                         Navigator.of(context).push(

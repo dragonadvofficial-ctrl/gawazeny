@@ -153,13 +153,19 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
     required String partnerId,
   }) async {
     if (kPreviewMode) {
+      final existingConv = PreviewMockData.conversations.cast<Conversation?>().firstWhere(
+        (c) => c != null && (c.matchId == matchId || c.partnerId == partnerId),
+        orElse: () => null,
+      );
+      final convId = existingConv?.id ?? 'preview-conv-$matchId';
+      final msgs = (convId == 'preview-conv-sara')
+          ? PreviewMockData.chatMessages
+          : <ChatMessage>[];
+
       state = state.copyWith(
         isAuthChecking: false,
-        authResult: const ChatAuthResult(
-          isAllowed: true,
-          conversationId: 'preview-conv-sara',
-        ),
-        messages: PreviewMockData.chatMessages,
+        authResult: ChatAuthResult.allowed(convId),
+        messages: msgs,
         isLoading: false,
       );
       return;
@@ -232,7 +238,8 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
   /// Sends a message with optimistic UI insertion.
   Future<void> sendMessage(String content) async {
     final convId = state.conversationId;
-    final uid = _ref.read(currentUserProvider)?.id;
+    final uid = _ref.read(currentUserProvider)?.id ??
+        (kPreviewMode ? PreviewMockData.currentUserId : null);
     if (convId == null || uid == null || content.trim().isEmpty) return;
 
     // Optimistic insert

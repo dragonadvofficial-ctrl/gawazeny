@@ -5,24 +5,48 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/localization/app_translations.dart';
-import '../../../core/theme/text_styles.dart';
 import '../../../core/network/supabase_client.dart';
+import '../../../core/theme/text_styles.dart';
 import '../../likes_matches/presentation/widgets/match_success_dialog.dart';
 import '../../profile/domain/user_profile.dart';
 import '../domain/scored_profile.dart';
 import 'matching_controller.dart';
+import 'widgets/discover_member_card.dart';
 import 'widgets/profile_details_sheet.dart';
 import 'widgets/search_filter_sheet.dart';
 
-/// Discovery feed displaying candidate partner profiles prioritized by the 3-Tier Recommendation Engine.
-class MatchingScreen extends ConsumerWidget {
+/// Screen offering two complementary modes:
+/// 1. "اكتشف الشركاء" (Discover Members Directory) - browse all registered profiles without minimum compatibility thresholds.
+/// 2. "البحث الذكي" (Smart Match Cards) - swipe feed prioritized by compatibility scoring.
+class MatchingScreen extends ConsumerStatefulWidget {
   const MatchingScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MatchingScreen> createState() => _MatchingScreenState();
+}
+
+class _MatchingScreenState extends ConsumerState<MatchingScreen> {
+  final TextEditingController _searchFieldController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchFieldController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(matchingControllerProvider);
     final controller = ref.read(matchingControllerProvider.notifier);
     final user = ref.watch(currentUserProvider);
+
+    // Sync search text field with state query if needed
+    if (_searchFieldController.text != state.filters.searchQuery) {
+      _searchFieldController.value = TextEditingValue(
+        text: state.filters.searchQuery,
+        selection: TextSelection.collapsed(offset: state.filters.searchQuery.length),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.offWhite,
@@ -36,7 +60,7 @@ class MatchingScreen extends ConsumerWidget {
         leading: IconButton(
           icon: const Icon(Icons.refresh_rounded),
           tooltip: context.tr('refreshMatches'),
-          onPressed: controller.loadRecommendations,
+          onPressed: controller.refreshAll,
         ),
         actions: [
           // Filter Button with Active Filter Count Badge
@@ -89,168 +113,449 @@ class MatchingScreen extends ConsumerWidget {
         ],
       ),
       body: SafeArea(
-        child: Builder(
-          builder: (context) {
-            // 1. Loading State
-            if (state.isLoading) {
-              return Center(
-                child: Column(
+        child: Column(
+          children: [
+            // Top Navigation Segmented Switch: [ Discover Members | Smart Match ]
+            _buildNavigationSwitcher(context, state, controller),
+
+            // Main Active View Body
+            Expanded(
+              child: state.selectedTab == 0
+                  ? _buildDiscoverDirectoryView(context, state, controller, user)
+                  : _buildSmartMatchCardsView(context, state, controller, user),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Top modern Segmented Tab switcher connecting Discover Members and Smart Match cards.
+  Widget _buildNavigationSwitcher(
+    BuildContext context,
+    MatchingState state,
+    MatchingController controller,
+  ) {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+      padding: EdgeInsets.all(4.r),
+      decoration: BoxDecoration(
+        color: AppColors.borderSubtle.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(16.r),
+      ),
+      child: Row(
+        children: [
+          // Tab 0: Discover Members Directory
+          Expanded(
+            child: GestureDetector(
+              onTap: () => controller.switchTab(0),
+              child: Container(
+                padding: EdgeInsets.symmetric(vertical: 8.h),
+                decoration: BoxDecoration(
+                  color: state.selectedTab == 0
+                      ? AppColors.surfaceWhite
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12.r),
+                  boxShadow: state.selectedTab == 0
+                      ? const [
+                          BoxShadow(
+                            color: AppColors.cardShadowColor,
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      width: 36.r,
-                      height: 36.r,
-                      child: const CircularProgressIndicator(
-                        strokeWidth: 3.0,
-                        color: AppColors.secondaryPink,
-                      ),
+                    Icon(
+                      Icons.people_alt_rounded,
+                      size: 18.sp,
+                      color: state.selectedTab == 0
+                          ? AppColors.secondaryPink
+                          : AppColors.textSecondary,
                     ),
-                    SizedBox(height: 16.h),
+                    SizedBox(width: 6.w),
                     Text(
-                      context.tr('calculatingMatches'),
-                      style: AppTextStyles.bodyMedium,
+                      context.tr('discoverMembers'),
+                      style: AppTextStyles.labelMedium.copyWith(
+                        color: state.selectedTab == 0
+                            ? AppColors.primaryNavy
+                            : AppColors.textSecondary,
+                        fontWeight: state.selectedTab == 0
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
                     ),
                   ],
                 ),
-              );
-            }
+              ),
+            ),
+          ),
 
-            // 2. Error State
-            if (state.errorMessage != null && state.profiles.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 32.w),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.cloud_off_rounded,
-                        size: 64.sp,
-                        color: AppColors.textSecondary,
-                      ),
-                      SizedBox(height: 16.h),
-                      Text(
-                        state.errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: AppTextStyles.bodyMedium,
-                      ),
-                      SizedBox(height: 20.h),
-                      ElevatedButton(
-                        onPressed: controller.loadRecommendations,
-                        child: Text(context.tr('retry')),
-                      ),
-                    ],
-                  ),
+          // Tab 1: Smart Match Swipe Cards
+          Expanded(
+            child: GestureDetector(
+              onTap: () => controller.switchTab(1),
+              child: Container(
+                padding: EdgeInsets.symmetric(vertical: 8.h),
+                decoration: BoxDecoration(
+                  color: state.selectedTab == 1
+                      ? AppColors.surfaceWhite
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12.r),
+                  boxShadow: state.selectedTab == 1
+                      ? const [
+                          BoxShadow(
+                            color: AppColors.cardShadowColor,
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
-              );
-            }
-
-            // 3. Empty State (No Candidates Left)
-            if (!state.hasMoreCandidates) {
-              return Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 32.w),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: EdgeInsets.all(24.r),
-                        decoration: BoxDecoration(
-                          color: AppColors.lightPink,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.favorite_border_rounded,
-                          size: 60.sp,
-                          color: AppColors.secondaryPink,
-                        ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.style_rounded,
+                      size: 18.sp,
+                      color: state.selectedTab == 1
+                          ? AppColors.secondaryPink
+                          : AppColors.textSecondary,
+                    ),
+                    SizedBox(width: 6.w),
+                    Text(
+                      context.tr('smartMatchCards'),
+                      style: AppTextStyles.labelMedium.copyWith(
+                        color: state.selectedTab == 1
+                            ? AppColors.primaryNavy
+                            : AppColors.textSecondary,
+                        fontWeight: state.selectedTab == 1
+                            ? FontWeight.bold
+                            : FontWeight.normal,
                       ),
-                      SizedBox(height: 24.h),
-                      Text(
-                        context.tr('noMoreProfiles'),
-                        style: AppTextStyles.headlineSmall,
-                        textAlign: TextAlign.center,
-                      ),
-                      SizedBox(height: 10.h),
-                      Text(
-                        context.tr('noMoreProfilesSub'),
-                        style: AppTextStyles.bodyMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                      SizedBox(height: 28.h),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (_) => SearchFilterSheet(
-                              initialFilters: state.filters,
-                              onApply: controller.applyFilters,
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.tune_rounded),
-                        label: Text(context.tr('modifySearchCriteria')),
-                      ),
-                      SizedBox(height: 12.h),
-                      TextButton(
-                        onPressed: controller.resetFilters,
-                        child: Text(context.tr('resetAllFilters')),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              );
-            }
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-            // 4. Candidate Discovery Card Stack
-            final candidate = state.currentCandidate!;
+  /// 1. "اكتشف الشركاء" View: Directory listing all registered candidates without 50% floor.
+  Widget _buildDiscoverDirectoryView(
+    BuildContext context,
+    MatchingState state,
+    MatchingController controller,
+    dynamic user,
+  ) {
+    final candidates = state.discoverMembers;
 
-            return Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-              child: Column(
-                children: [
-                  Expanded(
-                    child: _CandidateDiscoveryCard(
-                      candidate: candidate,
-                      onTapDetails: () => _openDetailsSheet(context, candidate, controller),
+    return RefreshIndicator(
+      onRefresh: controller.loadDiscoverMembers,
+      color: AppColors.secondaryPink,
+      child: ListView(
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+        children: [
+          // Search Bar
+          TextField(
+            controller: _searchFieldController,
+            onChanged: (val) => controller.search(val),
+            decoration: InputDecoration(
+              hintText: context.tr('searchHintDiscover'),
+              prefixIcon: const Icon(Icons.search_rounded, color: AppColors.secondaryPink),
+              suffixIcon: _searchFieldController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear_rounded, size: 18),
+                      onPressed: () {
+                        _searchFieldController.clear();
+                        controller.search('');
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: AppColors.surfaceWhite,
+              contentPadding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 16.w),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16.r),
+                borderSide: const BorderSide(color: AppColors.borderSubtle),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16.r),
+                borderSide: const BorderSide(color: AppColors.borderSubtle),
+              ),
+            ),
+          ),
+          SizedBox(height: 10.h),
+
+          // Quick Gender Filter Chips row
+          Row(
+            children: [
+              _GenderQuickChip(
+                label: context.tr('femalesOnly'),
+                isSelected: !state.filters.showAllGenders &&
+                    state.filters.targetGender == GenderType.female,
+                onTap: () => controller.setTargetGender(GenderType.female),
+              ),
+              SizedBox(width: 8.w),
+              _GenderQuickChip(
+                label: context.tr('malesOnly'),
+                isSelected: !state.filters.showAllGenders &&
+                    state.filters.targetGender == GenderType.male,
+                onTap: () => controller.setTargetGender(GenderType.male),
+              ),
+              SizedBox(width: 8.w),
+              _GenderQuickChip(
+                label: context.tr('allMembers'),
+                isSelected: state.filters.showAllGenders,
+                onTap: () => controller.setTargetGender(null, showAll: true),
+              ),
+            ],
+          ),
+          SizedBox(height: 12.h),
+
+          // Members Count & Active Filters Indicator Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                candidates.isNotEmpty
+                    ? context.tr('registeredMembersCount').replaceAll('{count}', '${candidates.length}')
+                    : context.tr('registeredMembers'),
+                style: AppTextStyles.labelMedium.copyWith(
+                  color: AppColors.primaryNavy,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (!state.filters.isDefault)
+                TextButton(
+                  onPressed: controller.resetFilters,
+                  child: Text(
+                    context.tr('resetAllFilters'),
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: AppColors.secondaryPink,
                     ),
                   ),
-                  SizedBox(height: 14.h),
+                ),
+            ],
+          ),
+          SizedBox(height: 8.h),
 
-                  // Action Buttons (Dislike, Details, Like)
-                  _MatchingActionBar(
-                    onPass: controller.swipeLeft,
-                    onOpenDetails: () => _openDetailsSheet(context, candidate, controller),
-                    onLike: () async {
-                      if (user == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(AppStrings.errorAuthRequired),
-                            backgroundColor: AppColors.errorRed,
-                          ),
-                        );
-                        return;
-                      }
-                      final targetProfile = candidate.profile;
-                      final targetPhoto = candidate.primaryPhotoUrl;
-                      final result = await controller.swipeRight();
-                      if (result != null && result.isMatch && context.mounted) {
-                        MatchSuccessDialog.show(
-                          context,
-                          partnerProfile: targetProfile,
-                          partnerPhotoUrl: targetPhoto,
-                        );
-                      }
-                    },
+          // Loading Indicator for Discover
+          if (state.isDiscoverLoading)
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: 40.h),
+              child: const Center(
+                child: CircularProgressIndicator(
+                  strokeWidth: 3.0,
+                  color: AppColors.secondaryPink,
+                ),
+              ),
+            )
+          // Empty State for Discover Directory
+          else if (candidates.isEmpty)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 40.h),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(20.r),
+                    decoration: BoxDecoration(
+                      color: AppColors.lightPink.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.person_search_rounded,
+                      size: 56.sp,
+                      color: AppColors.secondaryPink,
+                    ),
                   ),
-                  SizedBox(height: 10.h),
+                  SizedBox(height: 18.h),
+                  Text(
+                    context.tr('noMembersFound'),
+                    style: AppTextStyles.headlineSmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 8.h),
+                  Text(
+                    context.tr('noMembersFoundSub'),
+                    style: AppTextStyles.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 20.h),
+                  ElevatedButton.icon(
+                    onPressed: controller.resetFilters,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(context.tr('resetAllFilters')),
+                  ),
                 ],
               ),
-            );
-          },
+            )
+          // Candidate Cards List (works seamlessly for 1, 2, 3, 4, or 100 members)
+          else
+            ...candidates.map((candidate) {
+              return DiscoverMemberCard(
+                candidate: candidate,
+                currentUserGender: user?.userMetadata?['gender'] == 'FEMALE'
+                    ? GenderType.female
+                    : GenderType.male,
+                onTapDetails: () => _openDetailsSheet(context, candidate, controller),
+                onLike: () async {
+                  if (user == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(AppStrings.errorAuthRequired),
+                        backgroundColor: AppColors.errorRed,
+                      ),
+                    );
+                    return;
+                  }
+                  final targetProfile = candidate.profile;
+                  final targetPhoto = candidate.primaryPhotoUrl;
+                  final result = await controller.sendLikeForCandidate(candidate);
+                  if (result != null && result.isMatch && context.mounted) {
+                    MatchSuccessDialog.show(
+                      context,
+                      matchId: result.matchId,
+                      partnerProfile: targetProfile,
+                      partnerPhotoUrl: targetPhoto,
+                    );
+                  }
+                },
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  /// 2. "البحث الذكي" View: Swipe cards stack.
+  Widget _buildSmartMatchCardsView(
+    BuildContext context,
+    MatchingState state,
+    MatchingController controller,
+    dynamic user,
+  ) {
+    if (state.isLoading) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 36.r,
+              height: 36.r,
+              child: const CircularProgressIndicator(
+                strokeWidth: 3.0,
+                color: AppColors.secondaryPink,
+              ),
+            ),
+            SizedBox(height: 16.h),
+            Text(
+              context.tr('calculatingMatches'),
+              style: AppTextStyles.bodyMedium,
+            ),
+          ],
         ),
+      );
+    }
+
+    if (!state.hasMoreCandidates) {
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 32.w),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: EdgeInsets.all(24.r),
+                decoration: BoxDecoration(
+                  color: AppColors.lightPink,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.favorite_border_rounded,
+                  size: 60.sp,
+                  color: AppColors.secondaryPink,
+                ),
+              ),
+              SizedBox(height: 24.h),
+              Text(
+                context.tr('noMoreProfiles'),
+                style: AppTextStyles.headlineSmall,
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 10.h),
+              Text(
+                context.tr('noMoreProfilesSub'),
+                style: AppTextStyles.bodyMedium,
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 24.h),
+              ElevatedButton.icon(
+                onPressed: () => controller.switchTab(0),
+                icon: const Icon(Icons.people_alt_rounded),
+                label: Text(context.tr('exploreAllRegistered')),
+              ),
+              SizedBox(height: 12.h),
+              TextButton(
+                onPressed: controller.resetFilters,
+                child: Text(context.tr('resetAllFilters')),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final candidate = state.currentCandidate!;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+      child: Column(
+        children: [
+          Expanded(
+            child: _CandidateDiscoveryCard(
+              candidate: candidate,
+              onTapDetails: () => _openDetailsSheet(context, candidate, controller),
+            ),
+          ),
+          SizedBox(height: 14.h),
+
+          // Action Buttons (Dislike, Details, Like)
+          _MatchingActionBar(
+            onPass: controller.swipeLeft,
+            onOpenDetails: () => _openDetailsSheet(context, candidate, controller),
+            onLike: () async {
+              if (user == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(AppStrings.errorAuthRequired),
+                    backgroundColor: AppColors.errorRed,
+                  ),
+                );
+                return;
+              }
+              final targetProfile = candidate.profile;
+              final targetPhoto = candidate.primaryPhotoUrl;
+              final result = await controller.swipeRight();
+              if (result != null && result.isMatch && context.mounted) {
+                MatchSuccessDialog.show(
+                  context,
+                  matchId: result.matchId,
+                  partnerProfile: targetProfile,
+                  partnerPhotoUrl: targetPhoto,
+                );
+              }
+            },
+          ),
+          SizedBox(height: 10.h),
+        ],
       ),
     );
   }
@@ -271,10 +576,11 @@ class MatchingScreen extends ConsumerWidget {
           Navigator.of(context).pop();
           final targetProfile = candidate.profile;
           final targetPhoto = candidate.primaryPhotoUrl;
-          final result = await controller.swipeRight();
+          final result = await controller.sendLikeForCandidate(candidate);
           if (result != null && result.isMatch && context.mounted) {
             MatchSuccessDialog.show(
               context,
+              matchId: result.matchId,
               partnerProfile: targetProfile,
               partnerPhotoUrl: targetPhoto,
             );
@@ -285,7 +591,44 @@ class MatchingScreen extends ConsumerWidget {
   }
 }
 
-/// Floating matrimonial candidate card with 28px rounded corners and glassmorphism compatibility badge.
+class _GenderQuickChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _GenderQuickChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20.r),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 6.h),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.secondaryPink : AppColors.surfaceWhite,
+          borderRadius: BorderRadius.circular(20.r),
+          border: Border.all(
+            color: isSelected ? AppColors.secondaryPink : AppColors.borderSubtle,
+          ),
+        ),
+        child: Text(
+          label,
+          style: AppTextStyles.labelSmall.copyWith(
+            color: isSelected ? AppColors.surfaceWhite : AppColors.primaryNavy,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Floating matrimonial candidate card with rounded corners and dynamic compatibility badge.
 class _CandidateDiscoveryCard extends StatelessWidget {
   final ScoredProfile candidate;
   final VoidCallback onTapDetails;
@@ -298,7 +641,7 @@ class _CandidateDiscoveryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final profile = candidate.profile;
-    final photoUrl = candidate.primaryPhotoUrl;
+    final photoUrl = candidate.primaryPhotoUrl ?? profile.photoUrl;
 
     return GestureDetector(
       onTap: onTapDetails,
@@ -345,7 +688,7 @@ class _CandidateDiscoveryCard extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Glassmorphism Compatibility Score Badge
+                  // Compatibility Score Badge (handles null safely!)
                   Container(
                     padding: EdgeInsets.symmetric(
                       horizontal: 14.w,
@@ -371,7 +714,9 @@ class _CandidateDiscoveryCard extends StatelessWidget {
                         ),
                         SizedBox(width: 4.w),
                         Text(
-                          '${candidate.compatibilityScore}% ${context.tr('compatibility')}',
+                          candidate.compatibilityScore != null
+                              ? '${candidate.compatibilityScore}% ${context.tr('compatibility')}'
+                              : context.tr('compatibilityNotCalculated'),
                           style: AppTextStyles.labelSmall.copyWith(
                             color: AppColors.primaryNavy,
                             fontWeight: FontWeight.bold,

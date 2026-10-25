@@ -12,7 +12,7 @@ import 'package:gawezeny/features/matching/domain/matching_filters.dart';
 import 'package:gawezeny/features/matching/presentation/matching_screen.dart';
 import 'package:gawezeny/features/onboarding/presentation/onboarding_screen.dart';
 import 'package:gawezeny/features/profile/domain/user_profile.dart';
-import 'package:gawezeny/features/verification/data/verification_repository.dart';
+import 'package:gawezeny/features/verification/domain/identity_verification.dart';
 import 'package:gawezeny/features/verification/presentation/identity_verification_screen.dart';
 import 'package:gawezeny/features/chat/domain/chat_message.dart';
 import 'package:gawezeny/features/chat/presentation/chat_inbox_screen.dart';
@@ -179,35 +179,44 @@ void main() {
     expect(noMatchResult.matchId, isNull);
   });
 
-  test('AiVerificationResult status determination logic', () {
-    // VERIFIED: score >= 80 && liveness true
-    const verified = AiVerificationResult(
-      faceMatchScore: 85.0,
-      livenessPassed: true,
+  test('IdentityVerification manual submission and status states', () {
+    // 1. Initial submission defaults to PENDING
+    final pendingRequest = IdentityVerification(
+      id: 'verif-1',
+      userId: 'user-123',
+      userFullName: 'أحمد محمود القاضي',
+      idCardImageUrl: 'https://example.com/id.jpg',
+      selfieImageUrl: 'https://example.com/selfie.jpg',
+      status: VerificationStatusType.pending,
+      createdAt: DateTime.now(),
+    );
+    expect(pendingRequest.isPending, isTrue);
+    expect(pendingRequest.isVerified, isFalse);
+    expect(pendingRequest.userFullName, 'أحمد محمود القاضي');
+
+    // 2. Admin approval sets VERIFIED
+    final approved = pendingRequest.copyWith(
       status: VerificationStatusType.verified,
+      reviewedAt: DateTime.now(),
+      reviewedBy: 'admin-1',
     );
-    expect(verified.status, VerificationStatusType.verified);
-    expect(verified.faceMatchScore, greaterThanOrEqualTo(80));
-    expect(verified.livenessPassed, isTrue);
+    expect(approved.isVerified, isTrue);
+    expect(approved.isPending, isFalse);
 
-    // FAILED: liveness false
-    const failed = AiVerificationResult(
-      faceMatchScore: 75.0,
-      livenessPassed: false,
+    // 3. Admin rejection sets FAILED with reason
+    final rejected = pendingRequest.copyWith(
       status: VerificationStatusType.failed,
-      rejectionReason: 'فشل التحقق من حيوية الصورة',
+      rejectionReason: 'صورة البطاقة غير واضحة ويُرجى إعادة الرفع',
+      reviewedAt: DateTime.now(),
+      reviewedBy: 'admin-1',
     );
-    expect(failed.status, VerificationStatusType.failed);
-    expect(failed.rejectionReason, isNotNull);
+    expect(rejected.isFailed, isTrue);
+    expect(rejected.rejectionReason, contains('غير واضحة'));
 
-    // MANUAL_REVIEW: 50 <= score < 80 && liveness true
-    const review = AiVerificationResult(
-      faceMatchScore: 65.0,
-      livenessPassed: true,
-      status: VerificationStatusType.manualReview,
-    );
-    expect(review.status, VerificationStatusType.manualReview);
-    expect(review.faceMatchScore, inInclusiveRange(50, 79));
+    // 4. VerificationStatusType aliases (APPROVED -> verified, REJECTED -> failed)
+    expect(VerificationStatusType.fromDbValue('APPROVED'), VerificationStatusType.verified);
+    expect(VerificationStatusType.fromDbValue('REJECTED'), VerificationStatusType.failed);
+    expect(VerificationStatusType.fromDbValue('PENDING'), VerificationStatusType.pending);
   });
 
   testWidgets('IdentityVerificationScreen renders Step 1 with ID upload UI', (
@@ -218,7 +227,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(IdentityVerificationScreen), findsOneWidget);
-    expect(find.text('توثيق الهوية بالذكاء الاصطناعي'), findsOneWidget);
+    expect(find.text('توثيق الحساب بالرقم القومي'), findsOneWidget);
     expect(find.text(AppStrings.uploadIdCard), findsOneWidget);
     expect(find.text('من المعرض'), findsWidgets);
     expect(find.text('من الكاميرا'), findsWidgets);

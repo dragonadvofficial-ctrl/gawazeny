@@ -13,6 +13,16 @@ abstract final class SupabaseConstants {
     defaultValue: 'sb_publishable_c-wIMq0t09mTU4Uhp4lafg_zI-ZjgwL',
   );
 
+  /// Production verification web page URL or app deep link.
+  /// Can be configured via: flutter run --dart-define=AUTH_REDIRECT_URL=https://...
+  static const String authRedirectUrl = String.fromEnvironment(
+    'AUTH_REDIRECT_URL',
+    defaultValue: 'https://npcqnrucmwzompwmvztw.supabase.co/storage/v1/object/public/static/verify.html',
+  );
+
+  /// Native App Custom Scheme for deep linking back into Flutter
+  static const String appAuthDeepLink = 'gawezeny://auth/confirm';
+
   // Table Names
   static const String profilesTable = 'profiles';
   static const String partnerPreferencesTable = 'partner_preferences';

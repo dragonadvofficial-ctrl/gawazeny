@@ -53,7 +53,29 @@ class PartnerPreferences {
           .toList(),
       'acceptable_cities': acceptableCities,
       'must_pray': mustPray,
-      'accepts_smokers': acceptsSmokers,
     };
+  }
+
+  PartnerPreferences copyWith({
+    String? userId,
+    int? minAge,
+    int? maxAge,
+    List<MaritalStatusType>? acceptableMaritalStatuses,
+    List<String>? acceptableCities,
+    bool? mustPray,
+    bool? acceptsSmokers,
+    DateTime? createdAt,
+  }) {
+    return PartnerPreferences(
+      userId: userId ?? this.userId,
+      minAge: minAge ?? this.minAge,
+      maxAge: maxAge ?? this.maxAge,
+      acceptableMaritalStatuses:
+          acceptableMaritalStatuses ?? this.acceptableMaritalStatuses,
+      acceptableCities: acceptableCities ?? this.acceptableCities,
+      mustPray: mustPray ?? this.mustPray,
+      acceptsSmokers: acceptsSmokers ?? this.acceptsSmokers,
+      createdAt: createdAt ?? this.createdAt,
+    );
   }
 }

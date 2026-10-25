@@ -3,6 +3,8 @@ import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/network/supabase_client.dart';
+import '../../../core/preview/preview_config.dart';
+import '../../../core/preview/preview_mock_data.dart';
 import '../domain/chat_message.dart';
 
 /// Repository managing all chat operations: conversations, messages, realtime, and auth guards.
@@ -24,6 +26,18 @@ class ChatRepository {
     required String matchId,
     required String partnerId,
   }) async {
+    if (kPreviewMode) {
+      final existingConv = PreviewMockData.conversations.cast<Conversation?>().firstWhere(
+        (c) => c != null && (c.matchId == matchId || c.partnerId == partnerId),
+        orElse: () => null,
+      );
+      if (existingConv != null) {
+        return ChatAuthResult.allowed(existingConv.id);
+      }
+      final generatedId = 'preview-conv-$matchId';
+      return ChatAuthResult.allowed(generatedId);
+    }
+
     final uid = _userId;
     if (uid == null) {
       return ChatAuthResult.denied('NOT_AUTH', 'يجب تسجيل الدخول أولاً');
@@ -47,7 +61,19 @@ class ChatRepository {
         );
       }
 
-      return ChatAuthResult.allowed(map['conversation_id'] as String);
+      final convId = map['conversation_id'] as String?;
+      if (convId == null || convId.isEmpty) {
+        return await _clientSideAuthGuard(matchId, partnerId);
+      }
+
+      return ChatAuthResult.allowed(convId);
+    } on PostgrestException catch (e, stack) {
+      developer.log('getOrCreateConversation PostgrestException: ${e.code} ${e.message}',
+          error: e, stackTrace: stack);
+      if (e.code == '401' || e.message.contains('Not authenticated')) {
+        return ChatAuthResult.denied('NOT_AUTH', 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً');
+      }
+      return await _clientSideAuthGuard(matchId, partnerId);
     } catch (e, stack) {
       developer.log('getOrCreateConversation RPC error: $e',
           error: e, stackTrace: stack);
@@ -59,38 +85,71 @@ class ChatRepository {
 
   Future<ChatAuthResult> _clientSideAuthGuard(
       String matchId, String partnerId) async {
-    final uid = _userId!;
+    final uid = _userId;
+    if (uid == null) {
+      return ChatAuthResult.denied('NOT_AUTH', 'يجب تسجيل الدخول أولاً');
+    }
 
     try {
-      // Check own verification status
+      // 1. Verify active match exists & caller is participant
+      try {
+        final matchCheck = await _client
+            .from('matches')
+            .select('id, is_active, user_one, user_two')
+            .eq('id', matchId)
+            .maybeSingle();
+
+        if (matchCheck != null) {
+          if (matchCheck['is_active'] != true) {
+            return ChatAuthResult.denied(
+              'NO_MATCH',
+              'تم إنهاء هذا التوافق، لا يمكن بدء المحادثة',
+            );
+          }
+          final u1 = matchCheck['user_one'] as String?;
+          final u2 = matchCheck['user_two'] as String?;
+          if (uid != u1 && uid != u2) {
+            return ChatAuthResult.denied(
+              'UNAUTHORIZED',
+              'ليس لديك صلاحية الوصول لهذا التوافق',
+            );
+          }
+        }
+      } catch (e) {
+        developer.log('Direct match check query notice: $e');
+      }
+
+      // 2. Check own verification status
       final myProfile = await _client
           .from('profiles')
           .select('verification_status')
           .eq('id', uid)
           .single();
 
-      if ((myProfile['verification_status'] as String?) != 'VERIFIED') {
+      final myStatus = (myProfile['verification_status'] as String?)?.toUpperCase();
+      if (myStatus != 'VERIFIED') {
         return ChatAuthResult.denied(
           'NOT_VERIFIED',
           'يجب توثيق هويتك أولاً لبدء المحادثة',
         );
       }
 
-      // Check partner verification status
+      // 3. Check partner verification status
       final partnerProfile = await _client
           .from('profiles')
           .select('verification_status')
           .eq('id', partnerId)
           .single();
 
-      if ((partnerProfile['verification_status'] as String?) != 'VERIFIED') {
+      final partnerStatus = (partnerProfile['verification_status'] as String?)?.toUpperCase();
+      if (partnerStatus != 'VERIFIED') {
         return ChatAuthResult.denied(
           'PARTNER_NOT_VERIFIED',
           'الطرف الآخر لم يُوثّق هويته بعد، لا يمكن بدء المحادثة',
         );
       }
 
-      // Check block status
+      // 4. Check block status
       final blockCheck = await _client
           .from('blocked_users')
           .select('id')
@@ -104,11 +163,12 @@ class ChatRepository {
         );
       }
 
-      // Upsert conversation directly
+      // 5. Look for existing conversation by match_id or between users to prevent duplicates
       final existing = await _client
           .from('conversations')
           .select('id')
-          .eq('match_id', matchId)
+          .or('match_id.eq.$matchId,and(user_one.eq.$uid,user_two.eq.$partnerId),and(user_one.eq.$partnerId,user_two.eq.$uid)')
+          .limit(1)
           .maybeSingle();
 
       String conversationId;
@@ -128,6 +188,21 @@ class ChatRepository {
       }
 
       return ChatAuthResult.allowed(conversationId);
+    } on PostgrestException catch (e) {
+      developer.log('Client-side auth guard PostgrestException: ${e.code} ${e.message}');
+      if (e.code == '401') {
+        return ChatAuthResult.denied('NOT_AUTH', 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً');
+      }
+      if (e.code == '403') {
+        return ChatAuthResult.denied('UNAUTHORIZED', 'غير مصرح لك بالوصول لهذه المحادثة');
+      }
+      if (e.code == '404') {
+        return ChatAuthResult.denied('NOT_FOUND', 'بيانات المحادثة غير موجودة');
+      }
+      return ChatAuthResult.denied(
+        'ERROR',
+        'حدث خطأ في قاعدة البيانات (${e.code})',
+      );
     } catch (e) {
       developer.log('Client-side auth guard fallback failed: $e');
       return ChatAuthResult.denied(

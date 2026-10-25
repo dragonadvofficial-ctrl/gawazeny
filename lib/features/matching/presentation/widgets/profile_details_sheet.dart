@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_translations.dart';
+import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../profile/domain/user_profile.dart';
 import '../../../profile/presentation/widgets/report_user_sheet.dart';
 import '../../domain/scored_profile.dart';
 
 /// Modal bottom sheet displaying complete matrimonial biodata and values for a candidate.
-class ProfileDetailsSheet extends StatelessWidget {
+class ProfileDetailsSheet extends ConsumerWidget {
   final ScoredProfile scoredCandidate;
   final VoidCallback onLike;
   final VoidCallback onPass;
@@ -21,10 +23,11 @@ class ProfileDetailsSheet extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final profile = scoredCandidate.profile;
     final score = scoredCandidate.compatibilityScore;
     final photoUrl = scoredCandidate.primaryPhotoUrl;
+    final currentUser = ref.watch(currentUserProvider);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
@@ -164,13 +167,25 @@ class ProfileDetailsSheet extends StatelessWidget {
                           vertical: 6.h,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.lightPink,
+                          color: score != null
+                              ? AppColors.lightPink
+                              : AppColors.borderSubtle.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(20.r),
                         ),
                         child: Text(
-                          '⚡ ${context.tr('compatibility')}: $score%',
+                          score != null
+                              ? '⚡ ${context.tr('compatibility')}: $score%'
+                              : (currentUser != null && currentUser.id == profile.id
+                                  ? context.tr('myProfile')
+                                  : (currentUser != null &&
+                                          currentUser.userMetadata?['gender'] ==
+                                              profile.gender.toDbValue()
+                                      ? '👁️ ${context.tr('browsingOnly')}'
+                                      : '⏳ ${context.tr('compatibilityNotCalculated')}')),
                           style: AppTextStyles.labelMedium.copyWith(
-                            color: AppColors.secondaryPink,
+                            color: score != null
+                                ? AppColors.secondaryPink
+                                : AppColors.textSecondary,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -189,9 +204,7 @@ class ProfileDetailsSheet extends StatelessWidget {
                             children: [
                               Text(
                                 context.tr('personalBioCard'),
-                                style: AppTextStyles.titleSmall.copyWith(
-                                  color: AppColors.primaryNavy,
-                                ),
+                                style: AppTextStyles.titleMedium,
                               ),
                               SizedBox(height: 8.h),
                               Text(
@@ -207,66 +220,109 @@ class ProfileDetailsSheet extends StatelessWidget {
                       SizedBox(height: 16.h),
                     ],
 
-                    // Specifications & Lifestyle Card
+                    // Specifications Card
                     Card(
                       margin: EdgeInsets.zero,
                       child: Padding(
-                        padding: EdgeInsets.all(18.r),
+                        padding: EdgeInsets.all(16.r),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               context.tr('specificationsCard'),
-                              style: AppTextStyles.titleSmall.copyWith(
-                                color: AppColors.primaryNavy,
-                              ),
+                              style: AppTextStyles.titleMedium,
                             ),
                             SizedBox(height: 12.h),
                             _BiodataRow(
                               label: context.tr('maritalStatus'),
                               value: _maritalStatusArabic(context, profile.maritalStatus),
                             ),
+                            if (profile.educationLevel != null)
+                              _BiodataRow(
+                                label: context.tr('educationLevel'),
+                                value: profile.educationLevel!,
+                              ),
+                            if (profile.heightCm != null)
+                              _BiodataRow(
+                                label: context.isArabic ? 'الطول' : 'Height',
+                                value: '${profile.heightCm} سم',
+                              ),
+                            if (profile.weightKg != null)
+                              _BiodataRow(
+                                label: context.isArabic ? 'الوزن التقريبي' : 'Weight',
+                                value: '${profile.weightKg} كجم',
+                              ),
                             _BiodataRow(
-                              label: context.tr('educationLevel'),
-                              value: profile.educationLevel ?? context.tr('notSpecified'),
-                            ),
-                            _BiodataRow(
-                              label: context.isArabic ? 'الطول / الوزن' : 'Height / Weight',
-                              value:
-                                  '${profile.heightCm ?? 175} ${context.isArabic ? 'سم' : 'cm'} • ${profile.weightKg ?? 75} ${context.isArabic ? 'كجم' : 'kg'}',
-                            ),
-                            _BiodataRow(
-                              label: context.tr('prayerCommitment'),
+                              label: context.isArabic ? 'الالتزام بالصلاة' : 'Prayer Commitment',
                               value: profile.prays ?? (context.isArabic ? 'محافظ على الصلاة' : 'Regular in prayer'),
                             ),
                             _BiodataRow(
-                              label: context.tr('smoker'),
+                              label: context.isArabic ? 'التدخين' : 'Smoking',
                               value: profile.smoker
                                   ? context.tr('smokerYesFull')
                                   : context.tr('smokerNever'),
                             ),
                             _BiodataRow(
-                              label: context.tr('wantsChildren'),
+                              label: context.isArabic ? 'الرغبة في الإنجاب' : 'Wants Children',
                               value: profile.wantsChildren
                                   ? context.tr('wantsChildrenYes')
                                   : context.tr('wantsChildrenNo'),
-                            ),
-                            _BiodataRow(
-                              label: context.tr('verificationStatusRow'),
-                              value: scoredCandidate.isVerified
-                                  ? context.tr('verificationFullDetail')
-                                  : context.tr('verificationUnderway'),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    SizedBox(height: 28.h),
+                    SizedBox(height: 16.h),
+
+                    // Verification Status Card
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: EdgeInsets.all(16.r),
+                        child: Row(
+                          children: [
+                            Icon(
+                              scoredCandidate.isVerified
+                                  ? Icons.verified_user_rounded
+                                  : Icons.shield_outlined,
+                              color: scoredCandidate.isVerified
+                                  ? AppColors.successGreen
+                                  : AppColors.textSecondary,
+                              size: 28.sp,
+                            ),
+                            SizedBox(width: 12.w),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    context.tr('verificationStatusRow'),
+                                    style: AppTextStyles.labelMedium,
+                                  ),
+                                  Text(
+                                    scoredCandidate.isVerified
+                                        ? context.tr('verificationFullDetail')
+                                        : context.tr('verificationUnderway'),
+                                    style: AppTextStyles.bodySmall.copyWith(
+                                      color: scoredCandidate.isVerified
+                                          ? AppColors.successGreen
+                                          : AppColors.textSecondary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 32.h),
                   ],
                 ),
               ),
 
-              // Bottom Action Bar
+              // Bottom Actions (Pass & Serious Like)
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: 20.w,
@@ -303,17 +359,31 @@ class ProfileDetailsSheet extends StatelessWidget {
                       flex: 2,
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.secondaryPink,
+                          backgroundColor: scoredCandidate.isLiked
+                              ? AppColors.textSecondary
+                              : AppColors.secondaryPink,
                         ),
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          onLike();
-                        },
-                        icon: const Icon(
-                          Icons.favorite_rounded,
+                        onPressed: scoredCandidate.isLiked
+                            ? null
+                            : () {
+                                Navigator.of(context).pop();
+                                onLike();
+                              },
+                        icon: Icon(
+                          scoredCandidate.isMatched
+                              ? Icons.favorite_rounded
+                              : (scoredCandidate.isLiked
+                                  ? Icons.check_circle_outline_rounded
+                                  : Icons.favorite_rounded),
                           color: AppColors.surfaceWhite,
                         ),
-                        label: Text(context.tr('seriousLike')),
+                        label: Text(
+                          scoredCandidate.isMatched
+                              ? context.tr('alreadyMatched')
+                              : (scoredCandidate.isLiked
+                                  ? context.tr('alreadyLiked')
+                                  : context.tr('seriousLike')),
+                        ),
                       ),
                     ),
                   ],

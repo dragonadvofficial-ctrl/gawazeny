@@ -27,10 +27,12 @@ const REPORT_STATUS_LABELS = {
 // Verification status display names
 const VERIFICATION_STATUS_LABELS = {
   'UNVERIFIED': 'غير موثق',
-  'PENDING': 'قيد المراجعة',
-  'VERIFIED': 'موثق',
-  'FAILED': 'مرفوض',
-  'MANUAL_REVIEW': 'مراجعة يدوية',
+  'PENDING': 'في انتظار المراجعة',
+  'VERIFIED': 'تمت الموافقة',
+  'APPROVED': 'تمت الموافقة',
+  'FAILED': 'تم الرفض',
+  'REJECTED': 'تم الرفض',
+  'MANUAL_REVIEW': 'في انتظار المراجعة',
 };
 
 // Subscription status display names

@@ -208,7 +208,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM matches m
     WHERE m.id = p_match_id AND m.is_active = true
-      AND (m.user_one_id = v_user_id OR m.user_two_id = v_user_id)
+      AND (m.user_one = v_user_id OR m.user_two = v_user_id)
   ) THEN
     RETURN jsonb_build_object('error', 'NO_MATCH', 'message', 'لا يوجد توافق نشط');
   END IF;
@@ -237,11 +237,21 @@ BEGIN
     RETURN jsonb_build_object('error', 'BLOCKED', 'message', 'تعذر فتح المحادثة بسبب الحظر');
   END IF;
 
-  -- Upsert conversation
-  INSERT INTO conversations (match_id, user_one, user_two)
-  VALUES (p_match_id, v_user_id, p_partner_id)
-  ON CONFLICT (match_id) DO UPDATE SET match_id = EXCLUDED.match_id
-  RETURNING id INTO v_conv_id;
+  -- Check if conversation already exists by match_id OR between these two users
+  SELECT id INTO v_conv_id
+  FROM conversations
+  WHERE match_id = p_match_id
+     OR (user_one = v_user_id AND user_two = p_partner_id)
+     OR (user_one = p_partner_id AND user_two = v_user_id)
+  LIMIT 1;
+
+  IF v_conv_id IS NULL THEN
+    -- Upsert conversation
+    INSERT INTO conversations (match_id, user_one, user_two)
+    VALUES (p_match_id, v_user_id, p_partner_id)
+    ON CONFLICT (match_id) DO UPDATE SET match_id = EXCLUDED.match_id
+    RETURNING id INTO v_conv_id;
+  END IF;
 
   RETURN jsonb_build_object(
     'conversation_id', v_conv_id,

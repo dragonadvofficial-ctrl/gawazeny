@@ -36,6 +36,19 @@ Future<void> main() async {
     );
   }
 
+  // Enforce "Remember me on this device" policy on cold app launch
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final rememberMe =
+        prefs.getBool('auth_remember_me_on_this_device') ?? false;
+    if (!rememberMe) {
+      // Discard stored local session if user did not opt into remembering session
+      await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
+    }
+  } catch (e) {
+    developer.log('Remember-me cold launch session check notice: $e');
+  }
+
   // Pre-fetch persistent language selection to eliminate flicker and guarantee correct startup
   Locale initialLocale = const Locale('ar', 'EG');
   try {

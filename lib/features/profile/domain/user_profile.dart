@@ -45,6 +45,10 @@ enum VerificationStatusType {
   failed,
   manualReview;
 
+  bool get isVerified => this == VerificationStatusType.verified;
+  bool get isPending => this == VerificationStatusType.pending;
+  bool get isFailed => this == VerificationStatusType.failed;
+
   String toDbValue() {
     switch (this) {
       case VerificationStatusType.unverified:
@@ -65,8 +69,10 @@ enum VerificationStatusType {
       case 'PENDING':
         return VerificationStatusType.pending;
       case 'VERIFIED':
+      case 'APPROVED':
         return VerificationStatusType.verified;
       case 'FAILED':
+      case 'REJECTED':
         return VerificationStatusType.failed;
       case 'MANUAL_REVIEW':
         return VerificationStatusType.manualReview;
@@ -189,6 +195,8 @@ class UserProfile {
   });
 
   bool get isVerified => verificationStatus == VerificationStatusType.verified;
+  bool get isVerificationPending => verificationStatus == VerificationStatusType.pending;
+  bool get isVerificationFailed => verificationStatus == VerificationStatusType.failed;
   bool get isSubscribed => subscriptionStatus == SubscriptionStatusType.active;
 
   UserProfile copyWith({

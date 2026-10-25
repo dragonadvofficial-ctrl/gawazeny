@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>تأكيد بريدك الإلكتروني — جوزيني يا ماما</title>
+  <!--[if mso]>
+  <style type="text/css">
+    body, table, td {font-family: Arial, Helvetica, sans-serif !important;}
+  </style>
+  <![endif]-->
+  <style type="text/css">
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
+    
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #FFF7EE;
+      font-family: 'Tajawal', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      direction: rtl;
+      text-align: right;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      color: #0F2D5B;
+    }
+    .wrapper {
+      width: 100%;
+      table-layout: fixed;
+      background-color: #FFF7EE;
+      padding: 30px 12px;
+    }
+    .main-table {
+      max-width: 580px;
+      margin: 0 auto;
+      background-color: #FFFFFF;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(15, 45, 91, 0.06);
+      border: 1px solid #F1E5D8;
+    }
+    .header-bar {
+      background: linear-gradient(135deg, #0F2D5B 0%, #1E3A8A 50%, #881337 100%);
+      padding: 32px 24px;
+      text-align: center;
+      color: #FFFFFF;
+    }
+    .brand-title {
+      font-size: 26px;
+      font-weight: 800;
+      margin: 0;
+      color: #FFFFFF;
+      letter-spacing: -0.5px;
+    }
+    .brand-tagline {
+      font-size: 13px;
+      margin: 6px 0 0 0;
+      color: #FADADC;
+      font-weight: 400;
+    }
+    .content-body {
+      padding: 36px 32px;
+    }
+    .greeting {
+      font-size: 20px;
+      font-weight: 700;
+      color: #0F2D5B;
+      margin: 0 0 16px 0;
+    }
+    .message-text {
+      font-size: 15px;
+      line-height: 1.8;
+      color: #4A5568;
+      margin: 0 0 20px 0;
+    }
+    .button-container {
+      text-align: center;
+      margin: 32px 0;
+    }
+    .btn-confirm {
+      display: inline-block;
+      background: linear-gradient(135deg, #881337 0%, #E9477A 100%);
+      color: #FFFFFF !important;
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 700;
+      padding: 16px 42px;
+      border-radius: 14px;
+      box-shadow: 0 4px 14px rgba(136, 19, 55, 0.35);
+      transition: all 0.2s ease;
+    }
+    .link-fallback-box {
+      background-color: #FFF7EE;
+      border: 1px dashed #E2D3C4;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin: 24px 0 16px 0;
+      font-size: 12px;
+      color: #718096;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+    .link-fallback-box a {
+      color: #881337;
+      text-decoration: underline;
+    }
+    .security-notice {
+      font-size: 13px;
+      color: #A0AEC0;
+      margin: 20px 0 0 0;
+      line-height: 1.6;
+      border-top: 1px solid #EDF2F7;
+      padding-top: 16px;
+    }
+    .footer {
+      background-color: #FAFAFA;
+      padding: 24px 32px;
+      text-align: center;
+      border-top: 1px solid #F1E5D8;
+    }
+    .signature {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0F2D5B;
+      margin: 0 0 6px 0;
+    }
+    .disclaimer {
+      font-size: 11px;
+      color: #A0AEC0;
+      margin: 0;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" class="main-table" align="center" width="100%">
+      <!-- Header -->
+      <tr>
+        <td class="header-bar">
+          <div style="font-size: 40px; margin-bottom: 8px;">💍</div>
+          <h1 class="brand-title">جوزيني يا ماما</h1>
+          <p class="brand-tagline">منصة الزواج الجاد المتوافقة مع القيم العائلية والشريعة</p>
+        </td>
+      </tr>
+
+      <!-- Body Content -->
+      <tr>
+        <td class="content-body">
+          <p class="greeting">مرحبًا بك في جوزيني يا ماما 👋</p>
+
+          <p class="message-text">
+            شكرًا لانضمامك إلينا! يسعدنا وجودك معنا.
+          </p>
+
+          <p class="message-text">
+            لإكمال إنشاء حسابك والبدء في استخدام التطبيق، يرجى تأكيد عنوان بريدك الإلكتروني من خلال الضغط على الزر التالي.
+          </p>
+
+          <!-- Primary CTA Button (using Supabase official ConfirmationURL) -->
+          <div class="button-container">
+            <a href="{{ .ConfirmationURL }}" class="btn-confirm" target="_blank" rel="noopener noreferrer">
+              تأكيد البريد الإلكتروني
+            </a>
+          </div>
+
+          <!-- Fallback Link -->
+          <div class="link-fallback-box">
+            إذا لم يعمل الزر معك مباشرةً، يمكنك نسخ الرابط التالي ولصقه في متصفحك:<br>
+            <a href="{{ .ConfirmationURL }}" dir="ltr">{{ .ConfirmationURL }}</a>
+          </div>
+
+          <p class="security-notice">
+            إذا لم تقم بإنشاء هذا الحساب، يمكنك تجاهل هذه الرسالة.
+          </p>
+        </td>
+      </tr>
+
+      <!-- Footer -->
+      <tr>
+        <td class="footer">
+          <p class="signature">مع تحيات فريق جوزيني يا ماما.</p>
+          <p class="disclaimer">
+            منصة جوزيني يا ماما • صُممت خصيصاً لتيسير الزواج الشرعي الجاد بخصوصية وأمان تام
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>

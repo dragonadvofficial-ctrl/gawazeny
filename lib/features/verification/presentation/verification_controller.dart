@@ -5,6 +5,7 @@ import '../../../core/network/supabase_client.dart';
 import '../../../core/preview/preview_config.dart';
 import '../../../core/preview/preview_mock_data.dart';
 import '../../profile/domain/user_profile.dart';
+import '../../profile/presentation/profile_controller.dart';
 import '../data/verification_repository.dart';
 import '../domain/identity_verification.dart';
 
@@ -12,11 +13,11 @@ import '../domain/identity_verification.dart';
 enum VerificationStep {
   idCard,
   selfie,
-  processing,
+  submitting,
   result,
 }
 
-/// Full state for the verification wizard.
+/// Full state for the manual verification workflow.
 class VerificationState {
   final VerificationStep step;
 
@@ -28,15 +29,13 @@ class VerificationState {
   final String? idCardUrl;
   final String? selfieUrl;
 
-  // AI result
-  final AiVerificationResult? aiResult;
-
-  // Existing verification record (pre-loaded on init)
-  final IdentityVerification? existingRecord;
+  // Verification record from database or submission
+  final IdentityVerification? currentRecord;
 
   // UI state
-  final bool isProcessing;
+  final bool isSubmitting;
   final String? errorMessage;
+  final String? noticeMessage;
 
   const VerificationState({
     this.step = VerificationStep.idCard,
@@ -44,10 +43,10 @@ class VerificationState {
     this.selfieBytes,
     this.idCardUrl,
     this.selfieUrl,
-    this.aiResult,
-    this.existingRecord,
-    this.isProcessing = false,
+    this.currentRecord,
+    this.isSubmitting = false,
     this.errorMessage,
+    this.noticeMessage,
   });
 
   VerificationState copyWith({
@@ -56,10 +55,10 @@ class VerificationState {
     Uint8List? selfieBytes,
     String? idCardUrl,
     String? selfieUrl,
-    AiVerificationResult? aiResult,
-    IdentityVerification? existingRecord,
-    bool? isProcessing,
+    IdentityVerification? currentRecord,
+    bool? isSubmitting,
     String? errorMessage,
+    String? noticeMessage,
   }) {
     return VerificationState(
       step: step ?? this.step,
@@ -67,15 +66,15 @@ class VerificationState {
       selfieBytes: selfieBytes ?? this.selfieBytes,
       idCardUrl: idCardUrl ?? this.idCardUrl,
       selfieUrl: selfieUrl ?? this.selfieUrl,
-      aiResult: aiResult ?? this.aiResult,
-      existingRecord: existingRecord ?? this.existingRecord,
-      isProcessing: isProcessing ?? this.isProcessing,
+      currentRecord: currentRecord ?? this.currentRecord,
+      isSubmitting: isSubmitting ?? this.isSubmitting,
       errorMessage: errorMessage,
+      noticeMessage: noticeMessage ?? this.noticeMessage,
     );
   }
 
-  /// Shorthand for final status
-  VerificationStatusType? get finalStatus => aiResult?.status ?? existingRecord?.status;
+  /// Final status of verification
+  VerificationStatusType? get finalStatus => currentRecord?.status;
 
   /// True if ID card image has been captured
   bool get hasIdCard => idCardBytes != null;
@@ -87,7 +86,7 @@ class VerificationState {
   bool get readyToSubmit => hasIdCard && hasSelfie;
 }
 
-/// State notifier managing the 2-step ID verification wizard.
+/// State notifier managing identity document submission and admin review tracking.
 class VerificationController extends StateNotifier<VerificationState> {
   final VerificationRepository _repository;
   final Ref _ref;
@@ -102,9 +101,9 @@ class VerificationController extends StateNotifier<VerificationState> {
     if (kPreviewMode) return;
     try {
       final existing = await _repository.fetchUserVerificationStatus();
-      if (existing != null) {
+      if (existing != null && existing.status != VerificationStatusType.unverified) {
         state = state.copyWith(
-          existingRecord: existing,
+          currentRecord: existing,
           step: VerificationStep.result,
         );
       }
@@ -128,26 +127,34 @@ class VerificationController extends StateNotifier<VerificationState> {
   /// Sets verification result for visual QA and preview.
   void setResultForPreview({
     required VerificationStatusType status,
-    double score = 95.0,
-    String? name,
-    String? errorMessage,
+    String? rejectionReason,
+    String? registeredName,
   }) {
+    final profile = _ref.read(currentUserProfileProvider);
+    final effectiveName = registeredName ?? profile?.fullName ?? 'أحمد مصطفى كامل';
+
     state = state.copyWith(
       step: VerificationStep.result,
       idCardBytes: PreviewMockData.samplePngBytes,
       selfieBytes: PreviewMockData.samplePngBytes,
-      aiResult: AiVerificationResult(
+      noticeMessage: status == VerificationStatusType.pending
+          ? 'تم استلام طلب توثيق حسابك بنجاح. برجاء الانتظار، سيتم مراجعة طلبك خلال 15 دقيقة.'
+          : null,
+      currentRecord: IdentityVerification(
+        id: 'mock-verif-1',
+        userId: profile?.id ?? 'mock-user-1',
+        userFullName: effectiveName,
+        idCardImageUrl: 'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?w=600',
+        selfieImageUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600',
         status: status,
-        faceMatchScore: score,
-        livenessPassed: status == VerificationStatusType.verified,
-        extractedName: name ?? 'أحمد مصطفى كامل',
-        rejectionReason: errorMessage,
+        rejectionReason: rejectionReason,
+        createdAt: DateTime.now(),
       ),
-      errorMessage: errorMessage,
+      errorMessage: rejectionReason,
     );
   }
 
-  /// Sets the captured ID card image bytes (from picker).
+  /// Sets the captured ID card image bytes.
   void setIdCardImage(Uint8List bytes) {
     state = state.copyWith(
       idCardBytes: bytes,
@@ -155,7 +162,7 @@ class VerificationController extends StateNotifier<VerificationState> {
     );
   }
 
-  /// Sets the captured selfie image bytes (from camera).
+  /// Sets the captured selfie image bytes.
   void setSelfieImage(Uint8List bytes) {
     state = state.copyWith(
       selfieBytes: bytes,
@@ -174,20 +181,51 @@ class VerificationController extends StateNotifier<VerificationState> {
     state = state.copyWith(step: VerificationStep.selfie, errorMessage: null);
   }
 
-  /// Full pipeline: Upload images → AI verification → Submit result → Update state.
-  Future<void> submitForAiVerification() async {
+  /// Submits the documents for manual admin approval.
+  /// Sets state to PENDING and displays the required 15-minute review notice.
+  Future<void> submitVerificationRequest() async {
     if (!state.readyToSubmit) {
       state = state.copyWith(
-        errorMessage: 'يرجى رفع صورة البطاقة والسيلفي قبل الإرسال',
+        errorMessage: 'يرجى رفع صورة بطاقة الرقم القومي والصورة الشخصية قبل الإرسال',
       );
       return;
     }
 
     state = state.copyWith(
-      step: VerificationStep.processing,
-      isProcessing: true,
+      step: VerificationStep.submitting,
+      isSubmitting: true,
       errorMessage: null,
     );
+
+    const pendingNotice =
+        'تم استلام طلب توثيق حسابك بنجاح. برجاء الانتظار، سيتم مراجعة طلبك خلال 15 دقيقة.';
+
+    // In preview mode or mock testing
+    if (kPreviewMode) {
+      await Future.delayed(const Duration(milliseconds: 600));
+      final profile = _ref.read(currentUserProfileProvider);
+      final verif = IdentityVerification(
+        id: 'mock-verif-pending',
+        userId: profile?.id ?? 'mock-user-1',
+        userFullName: profile?.fullName ?? 'أحمد محمود القاضي',
+        idCardImageUrl: 'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?w=600',
+        selfieImageUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600',
+        status: VerificationStatusType.pending,
+        rejectionReason: null,
+        createdAt: DateTime.now(),
+      );
+
+      state = state.copyWith(
+        step: VerificationStep.result,
+        currentRecord: verif,
+        isSubmitting: false,
+        noticeMessage: pendingNotice,
+      );
+
+      // Update local profile verification status to PENDING
+      _ref.read(profileControllerProvider.notifier).setVerificationStatus(VerificationStatusType.pending);
+      return;
+    }
 
     try {
       final uid = _ref.read(currentUserProvider)?.id ?? 'unknown';
@@ -205,37 +243,38 @@ class VerificationController extends StateNotifier<VerificationState> {
         'selfie_${uid}_$ts.jpg',
       );
 
-      // 3. Run AI verification engine
-      final aiResult = await _repository.processAiVerification(
-        idBytes: state.idCardBytes!,
-        selfieBytes: state.selfieBytes!,
-      );
-
-      // 4. Persist result via RPC
-      await _repository.submitVerification(
+      // 3. Submit request to backend for admin review
+      final result = await _repository.submitVerificationRequest(
         idCardUrl: idCardUrl,
         selfieUrl: selfieUrl,
-        aiResult: aiResult,
       );
+
+      // 4. Update local profile state to PENDING
+      _ref.read(profileControllerProvider.notifier).setVerificationStatus(VerificationStatusType.pending);
 
       state = state.copyWith(
         step: VerificationStep.result,
         idCardUrl: idCardUrl,
         selfieUrl: selfieUrl,
-        aiResult: aiResult,
-        isProcessing: false,
+        currentRecord: result.verification,
+        isSubmitting: false,
+        noticeMessage: result.message,
       );
     } catch (e) {
-      developer.log('submitForAiVerification error: $e');
+      developer.log('submitVerificationRequest error: $e');
       state = state.copyWith(
         step: VerificationStep.result,
-        isProcessing: false,
+        isSubmitting: false,
         errorMessage: e.toString(),
-        aiResult: AiVerificationResult(
-          faceMatchScore: 0,
-          livenessPassed: false,
+        currentRecord: IdentityVerification(
+          id: 'error-verif',
+          userId: _ref.read(currentUserProvider)?.id ?? '',
+          userFullName: _ref.read(currentUserProfileProvider)?.fullName,
+          idCardImageUrl: '',
+          selfieImageUrl: '',
           status: VerificationStatusType.failed,
-          rejectionReason: 'حدث خطأ أثناء عملية التوثيق. يرجى التحقق من الصور وإعادة المحاولة',
+          rejectionReason: 'حدث خطأ أثناء إرسال طلب التوثيق. يرجى التحقق من اتصالك بالإنترنت وإعادة المحاولة.',
+          createdAt: DateTime.now(),
         ),
       );
     }
@@ -244,21 +283,6 @@ class VerificationController extends StateNotifier<VerificationState> {
   /// Retry with new images — resets to Step 1 (ID card).
   void retryWithNewImages() {
     state = const VerificationState(step: VerificationStep.idCard);
-  }
-
-  /// Resubmit with the same images (retry same bytes).
-  Future<void> resubmitSameImages() async {
-    if (state.idCardBytes == null || state.selfieBytes == null) {
-      retryWithNewImages();
-      return;
-    }
-    state = state.copyWith(
-      step: VerificationStep.processing,
-      isProcessing: true,
-      errorMessage: null,
-      aiResult: null,
-    );
-    await submitForAiVerification();
   }
 }
 

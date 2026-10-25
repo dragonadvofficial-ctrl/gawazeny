@@ -294,7 +294,7 @@ DECLARE
   v_new_status verification_status_type;
 BEGIN
   IF NOT is_admin() THEN
-    RETURN jsonb_build_object('success', false, 'error', 'غير مصرح');
+    RETURN jsonb_build_object('success', false, 'error', 'غير مصرح للقيام بهذه العملية');
   END IF;
 
   SELECT * INTO v_verification
@@ -305,10 +305,10 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'طلب التحقق غير موجود');
   END IF;
 
-  IF p_action = 'APPROVE' THEN
-    v_new_status := 'VERIFIED';
-  ELSIF p_action = 'REJECT' THEN
-    v_new_status := 'FAILED';
+  IF UPPER(p_action) IN ('APPROVE', 'APPROVED', 'VERIFIED') THEN
+    v_new_status := 'VERIFIED'::verification_status_type;
+  ELSIF UPPER(p_action) IN ('REJECT', 'REJECTED', 'FAILED') THEN
+    v_new_status := 'FAILED'::verification_status_type;
   ELSE
     RETURN jsonb_build_object('success', false, 'error', 'إجراء غير صالح');
   END IF;
@@ -316,7 +316,7 @@ BEGIN
   -- Update verification record
   UPDATE identity_verifications
   SET status = v_new_status,
-      rejection_reason = CASE WHEN p_action = 'REJECT' THEN p_rejection_reason ELSE NULL END
+      rejection_reason = CASE WHEN v_new_status = 'FAILED'::verification_status_type THEN COALESCE(p_rejection_reason, 'تم رفض طلب التوثيق من قِبل الإدارة') ELSE NULL END
   WHERE id = p_verification_id;
 
   -- Update profile verification status
@@ -327,9 +327,10 @@ BEGIN
 
   RETURN jsonb_build_object(
     'success', true,
-    'message', CASE WHEN p_action = 'APPROVE'
-      THEN 'تم قبول التحقق بنجاح'
-      ELSE 'تم رفض طلب التحقق'
+    'status', v_new_status::TEXT,
+    'message', CASE WHEN v_new_status = 'VERIFIED'::verification_status_type
+      THEN 'تم قبول وتوثيق الحساب بنجاح'
+      ELSE 'تم رفض طلب التوثيق'
     END
   );
 END;

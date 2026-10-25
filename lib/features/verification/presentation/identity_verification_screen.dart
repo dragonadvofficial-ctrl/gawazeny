@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -7,9 +6,10 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/localization/app_translations.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../profile/domain/user_profile.dart';
+import '../../profile/presentation/profile_controller.dart';
 import 'verification_controller.dart';
 
-/// Complete 2-step identity verification wizard with AI pipeline integration.
+/// Complete manual identity verification flow with manual admin approval.
 class IdentityVerificationScreen extends ConsumerWidget {
   const IdentityVerificationScreen({super.key});
 
@@ -20,13 +20,13 @@ class IdentityVerificationScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.offWhite,
       appBar: AppBar(
-        title: Text(context.isArabic
-            ? 'توثيق الهوية بالذكاء الاصطناعي'
-            : 'AI Identity Verification'),
-        leading: state.step != VerificationStep.processing
+        title: Text(
+          context.isArabic ? 'توثيق الحساب بالرقم القومي' : 'Account Verification',
+        ),
+        leading: state.step != VerificationStep.submitting
             ? null
             : const SizedBox.shrink(),
-        automaticallyImplyLeading: state.step != VerificationStep.processing,
+        automaticallyImplyLeading: state.step != VerificationStep.submitting,
       ),
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 350),
@@ -41,14 +41,11 @@ class IdentityVerificationScreen extends ConsumerWidget {
           ),
         ),
         child: switch (state.step) {
-          VerificationStep.idCard => _IdCardStep(key: const ValueKey('id')),
-          VerificationStep.selfie => _SelfieStep(key: const ValueKey('selfie')),
-          VerificationStep.processing =>
-            _ProcessingView(key: const ValueKey('processing')),
-          VerificationStep.result => _ResultView(
-              key: const ValueKey('result'),
-              errorMessage: state.errorMessage,
-            ),
+          VerificationStep.idCard => const _IdCardStep(key: ValueKey('id')),
+          VerificationStep.selfie => const _SelfieStep(key: ValueKey('selfie')),
+          VerificationStep.submitting =>
+            const _SubmittingView(key: ValueKey('submitting')),
+          VerificationStep.result => const _ResultView(key: ValueKey('result')),
         },
       ),
     );
@@ -66,7 +63,7 @@ class _VerificationStepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 20.h),
+      padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 16.h),
       child: Column(
         children: [
           // Security Trust Banner
@@ -75,35 +72,43 @@ class _VerificationStepper extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.lightPink,
               borderRadius: BorderRadius.circular(14.r),
-              border: Border.all(color: AppColors.secondaryPink.withValues(alpha: 0.3)),
+              border: Border.all(
+                color: AppColors.secondaryPink.withValues(alpha: 0.3),
+              ),
             ),
             child: Row(
               children: [
-                Icon(Icons.security_rounded,
-                    color: AppColors.secondaryPink, size: 22.sp),
-                SizedBox(width: 10.w),
+                Icon(
+                  Icons.verified_user_outlined,
+                  color: AppColors.secondaryPink,
+                  size: 24.sp,
+                ),
+                SizedBox(width: 12.w),
                 Expanded(
                   child: Text(
                     context.isArabic
-                        ? 'بياناتك مشفرة ومحمية بأعلى معايير الأمان ولا تُشارك مع أي طرف'
-                        : 'Your data is encrypted, secure, and never shared with third parties',
-                    style: AppTextStyles.bodySmall
-                        .copyWith(color: AppColors.primaryNavy),
+                        ? 'بياناتك مشفرة ومحمية بأعلى معايير الأمان، وتُراجع يدوياً فقط بواسطة إدارة المنصة.'
+                        : 'Your data is strictly encrypted and manually reviewed by our platform administration.',
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: AppColors.primaryNavy,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          SizedBox(height: 20.h),
+          SizedBox(height: 18.h),
 
           // Step indicators
           Row(
             children: [
               _StepDot(
-                  stepNumber: 1,
-                  label: context.isArabic ? 'البطاقة' : 'ID Card',
-                  isActive: currentStep >= 1,
-                  isDone: currentStep > 1),
+                stepNumber: 1,
+                label: context.isArabic ? 'بطاقة الرقم القومي' : 'National ID',
+                isActive: currentStep >= 1,
+                isDone: currentStep > 1,
+              ),
               Expanded(
                 child: Container(
                   height: 2.h,
@@ -113,10 +118,11 @@ class _VerificationStepper extends StatelessWidget {
                 ),
               ),
               _StepDot(
-                  stepNumber: 2,
-                  label: context.isArabic ? 'السيلفي' : 'Selfie',
-                  isActive: currentStep >= 2,
-                  isDone: false),
+                stepNumber: 2,
+                label: context.isArabic ? 'الصورة الشخصية' : 'Personal Photo',
+                isActive: currentStep >= 2,
+                isDone: false,
+              ),
             ],
           ),
         ],
@@ -152,8 +158,11 @@ class _StepDot extends StatelessWidget {
           ),
           child: Center(
             child: isDone
-                ? Icon(Icons.check_rounded,
-                    color: AppColors.surfaceWhite, size: 18.sp)
+                ? Icon(
+                    Icons.check_rounded,
+                    color: AppColors.surfaceWhite,
+                    size: 18.sp,
+                  )
                 : Text(
                     '$stepNumber',
                     style: AppTextStyles.labelLarge.copyWith(
@@ -224,7 +233,6 @@ class _IdCardStep extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Title
                 Text(
                   context.isArabic
                       ? 'رفع صورة بطاقة الرقم القومي'
@@ -237,10 +245,11 @@ class _IdCardStep extends ConsumerWidget {
                 SizedBox(height: 8.h),
                 Text(
                   context.isArabic
-                      ? 'يُرجى رفع صورة واضحة للوجه الأمامي لبطاقة الرقم القومي المصرية'
-                      : 'Please upload a clear photo of the front face of your Egyptian National ID',
-                  style: AppTextStyles.bodyMedium
-                      .copyWith(color: AppColors.textSecondary),
+                      ? 'يُرجى رفع صورة واضحة للوجه الأمامي لبطاقة الرقم القومي المصرية.'
+                      : 'Please upload a clear photo of the front of your Egyptian National ID.',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
                 SizedBox(height: 20.h),
 
@@ -251,7 +260,7 @@ class _IdCardStep extends ConsumerWidget {
                     height: 200.h,
                     decoration: BoxDecoration(
                       color: AppColors.surfaceWhite,
-                      borderRadius: BorderRadius.circular(20.r),
+                      borderRadius: BorderRadius.circular(18.r),
                       border: Border.all(
                         color: state.hasIdCard
                             ? AppColors.successGreen
@@ -261,51 +270,89 @@ class _IdCardStep extends ConsumerWidget {
                       boxShadow: const [
                         BoxShadow(
                           color: AppColors.cardShadowColor,
-                          blurRadius: 10,
-                          offset: Offset(0, 4),
+                          blurRadius: 8,
+                          offset: Offset(0, 3),
                         ),
                       ],
                     ),
                     child: state.hasIdCard
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(18.r),
-                            child: Image.memory(
-                              state.idCardBytes!,
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                            ),
+                        ? Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(16.r),
+                                child: Image.memory(
+                                  state.idCardBytes!,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              Positioned(
+                                top: 10.h,
+                                right: 10.w,
+                                child: Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 10.w,
+                                    vertical: 4.h,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.successGreen,
+                                    borderRadius: BorderRadius.circular(20.r),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle_rounded,
+                                        color: AppColors.surfaceWhite,
+                                        size: 14.sp,
+                                      ),
+                                      SizedBox(width: 4.w),
+                                      Text(
+                                        context.isArabic ? 'تم الرفع' : 'Uploaded',
+                                        style: AppTextStyles.labelSmall.copyWith(
+                                          color: AppColors.surfaceWhite,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           )
                         : Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Container(
-                                padding: EdgeInsets.all(18.r),
-                                decoration: const BoxDecoration(
+                                width: 56.r,
+                                height: 56.r,
+                                decoration: BoxDecoration(
                                   color: AppColors.lightPink,
                                   shape: BoxShape.circle,
                                 ),
-                                child: Icon(
-                                  Icons.badge_outlined,
-                                  color: AppColors.secondaryPink,
-                                  size: 40.sp,
+                                child: Center(
+                                  child: Icon(
+                                    Icons.badge_outlined,
+                                    color: AppColors.secondaryPink,
+                                    size: 28.sp,
+                                  ),
                                 ),
                               ),
                               SizedBox(height: 12.h),
                               Text(
                                 context.isArabic
                                     ? 'اضغط لرفع صورة البطاقة'
-                                    : 'Tap to upload ID photo',
-                                style: AppTextStyles.labelLarge.copyWith(
+                                    : 'Tap to upload ID Card',
+                                style: AppTextStyles.titleMedium.copyWith(
                                   color: AppColors.primaryNavy,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                               SizedBox(height: 4.h),
                               Text(
-                                context.isArabic
-                                    ? 'JPG أو PNG • جودة عالية'
-                                    : 'JPG or PNG • High quality',
-                                style: AppTextStyles.labelSmall.copyWith(
-                                  color: AppColors.textMuted,
+                                'JPG, PNG • صورة واضحة ومقروءة',
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: AppColors.textSecondary,
                                 ),
                               ),
                             ],
@@ -321,7 +368,7 @@ class _IdCardStep extends ConsumerWidget {
                       child: OutlinedButton.icon(
                         onPressed: () => pickImage(ImageSource.gallery),
                         icon: Icon(Icons.photo_library_outlined, size: 18.sp),
-                        label: Text(context.isArabic ? 'من المعرض' : 'From Gallery'),
+                        label: Text(context.isArabic ? 'من المعرض' : 'Gallery'),
                         style: OutlinedButton.styleFrom(
                           padding: EdgeInsets.symmetric(vertical: 12.h),
                           side: const BorderSide(color: AppColors.primaryNavy),
@@ -334,7 +381,7 @@ class _IdCardStep extends ConsumerWidget {
                       child: OutlinedButton.icon(
                         onPressed: () => pickImage(ImageSource.camera),
                         icon: Icon(Icons.camera_alt_outlined, size: 18.sp),
-                        label: Text(context.isArabic ? 'من الكاميرا' : 'From Camera'),
+                        label: Text(context.isArabic ? 'من الكاميرا' : 'Camera'),
                         style: OutlinedButton.styleFrom(
                           padding: EdgeInsets.symmetric(vertical: 12.h),
                           side: const BorderSide(color: AppColors.primaryNavy),
@@ -344,41 +391,43 @@ class _IdCardStep extends ConsumerWidget {
                     ),
                   ],
                 ),
-                SizedBox(height: 16.h),
+                SizedBox(height: 20.h),
 
-                // Quality Guidelines
+                // Guidelines
                 _GuidelinesCard(
                   guidelines: context.isArabic
                       ? const [
-                          'تأكد من وضوح النص والصورة بشكل كامل، وبدون انعكاس للضوء',
-                          'وضع البطاقة على خلفية داكنة ومسطحة',
-                          'التأكد من عدم وجود ظلال أو طيات تحجب البيانات',
-                          'صورة مباشرة للوجه الأمامي فقط لبطاقة الرقم القومي',
+                          'تأكد من وضوح كافة البيانات في البطاقة بدون انعكاس للضوء',
+                          'ضع البطاقة على سطح مستوٍ ومفرود أثناء التصوير',
+                          'تأكد أن البطاقة سارية وغير منتهية الصلاحية',
                         ]
                       : const [
-                          'Ensure all text and photos are sharp without reflections',
-                          'Place the ID card flat on a dark surface',
-                          'Make sure no shadows or folds obscure the information',
-                          'Direct photo of the front face of your National ID only',
+                          'Ensure all details on ID are clear and free from glare',
+                          'Place card on a flat surface while capturing',
+                          'Ensure National ID card is valid and unexpired',
                         ],
                 ),
                 SizedBox(height: 24.h),
 
-                // Error display
+                // Error Banner
                 if (state.errorMessage != null) ...[
                   _ErrorBanner(message: state.errorMessage!),
                   SizedBox(height: 16.h),
                 ],
 
-                // Continue Button
+                // Next Button
                 SizedBox(
                   height: 52.h,
                   child: ElevatedButton(
                     onPressed: state.hasIdCard ? controller.proceedToSelfie : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.secondaryPink,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14.r),
+                      ),
+                    ),
                     child: Text(
-                      context.isArabic
-                          ? 'التالي — التقاط السيلفي'
-                          : 'Next — Take Selfie',
+                      context.isArabic ? 'التالي — الصورة الشخصية' : 'Next — Personal Photo',
                       style: AppTextStyles.labelLarge.copyWith(
                         color: AppColors.surfaceWhite,
                         fontWeight: FontWeight.bold,
@@ -397,7 +446,7 @@ class _IdCardStep extends ConsumerWidget {
 }
 
 // ============================================================================
-// STEP 2: SELFIE CAPTURE
+// STEP 2: SELFIE / PERSONAL PHOTO CAPTURE
 // ============================================================================
 class _SelfieStep extends ConsumerWidget {
   const _SelfieStep({super.key});
@@ -445,8 +494,8 @@ class _SelfieStep extends ConsumerWidget {
               children: [
                 Text(
                   context.isArabic
-                      ? 'التقاط صورة سيلفي حية'
-                      : 'Take a Live Selfie',
+                      ? 'التقاط الصورة الشخصية الحديثة'
+                      : 'Take a Personal Photo',
                   style: AppTextStyles.titleLarge.copyWith(
                     color: AppColors.primaryNavy,
                     fontWeight: FontWeight.bold,
@@ -455,24 +504,24 @@ class _SelfieStep extends ConsumerWidget {
                 SizedBox(height: 8.h),
                 Text(
                   context.isArabic
-                      ? 'يرجى التقاط صورة واضحة لوجهك في إضاءة جيدة للتأكد من مطابقتها مع الهوية'
-                      : 'Please take a clear selfie in good lighting to match with your National ID',
-                  style: AppTextStyles.bodyMedium
-                      .copyWith(color: AppColors.textSecondary),
+                      ? 'يرجى التقاط صورة واضحة وحديثة لوجهك في إضاءة جيدة لمطابقتها مع صورة البطاقة من قِبل الإدارة.'
+                      : 'Please take a clear, recent photo of your face in good lighting for manual admin comparison.',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
                 SizedBox(height: 20.h),
 
-                // Selfie Preview with oval face-guide frame
+                // Selfie Preview / Frame
                 Center(
                   child: GestureDetector(
                     onTap: () => captureSelfie(ImageSource.camera),
                     child: SizedBox(
                       width: 240.r,
-                      height: 280.r,
+                      height: 270.r,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          // Background card
                           Container(
                             decoration: BoxDecoration(
                               color: AppColors.surfaceWhite,
@@ -486,7 +535,7 @@ class _SelfieStep extends ConsumerWidget {
                               boxShadow: const [
                                 BoxShadow(
                                   color: AppColors.cardShadowColor,
-                                  blurRadius: 12,
+                                  blurRadius: 10,
                                   offset: Offset(0, 4),
                                 ),
                               ],
@@ -504,51 +553,50 @@ class _SelfieStep extends ConsumerWidget {
                                 : Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      // Oval face guide
                                       Container(
-                                        width: 120.r,
-                                        height: 150.r,
+                                        width: 100.r,
+                                        height: 120.r,
                                         decoration: BoxDecoration(
-                                          shape: BoxShape.rectangle,
                                           borderRadius:
-                                              BorderRadius.circular(80.r),
+                                              BorderRadius.circular(60.r),
                                           border: Border.all(
                                             color: AppColors.secondaryPink
                                                 .withValues(alpha: 0.5),
-                                            width: 2.5,
+                                            width: 2,
                                           ),
                                           color: AppColors.lightPink
-                                              .withValues(alpha: 0.3),
+                                              .withValues(alpha: 0.4),
                                         ),
                                         child: Center(
                                           child: Icon(
                                             Icons.face_outlined,
                                             color: AppColors.secondaryPink,
-                                            size: 52.sp,
+                                            size: 48.sp,
                                           ),
                                         ),
                                       ),
                                       SizedBox(height: 14.h),
                                       Text(
                                         context.isArabic
-                                            ? 'اضغط للتقاط السيلفي'
-                                            : 'Tap to take a selfie',
-                                        style: AppTextStyles.labelMedium
-                                            .copyWith(
-                                                color: AppColors.primaryNavy),
+                                            ? 'اضغط لالتقاط صورتك'
+                                            : 'Tap to take photo',
+                                        style: AppTextStyles.labelMedium.copyWith(
+                                          color: AppColors.primaryNavy,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                     ],
                                   ),
                           ),
-
-                          // Live/Valid indicator overlay
                           if (state.hasSelfie)
                             Positioned(
                               bottom: 12.h,
                               right: 12.w,
                               child: Container(
                                 padding: EdgeInsets.symmetric(
-                                    horizontal: 10.w, vertical: 5.h),
+                                  horizontal: 10.w,
+                                  vertical: 4.h,
+                                ),
                                 decoration: BoxDecoration(
                                   color: AppColors.successGreen,
                                   borderRadius: BorderRadius.circular(20.r),
@@ -563,9 +611,7 @@ class _SelfieStep extends ConsumerWidget {
                                     ),
                                     SizedBox(width: 4.w),
                                     Text(
-                                      context.isArabic
-                                          ? 'تم التقاطها'
-                                          : 'Captured',
+                                      context.isArabic ? 'تم التقاطها' : 'Captured',
                                       style: AppTextStyles.labelSmall.copyWith(
                                         color: AppColors.surfaceWhite,
                                         fontWeight: FontWeight.bold,
@@ -589,7 +635,7 @@ class _SelfieStep extends ConsumerWidget {
                       child: OutlinedButton.icon(
                         onPressed: () => captureSelfie(ImageSource.camera),
                         icon: Icon(Icons.camera_front_rounded, size: 18.sp),
-                        label: Text(context.isArabic ? 'الكاميرا الأمامية' : 'Front Camera'),
+                        label: Text(context.isArabic ? 'الكاميرا' : 'Camera'),
                         style: OutlinedButton.styleFrom(
                           padding: EdgeInsets.symmetric(vertical: 12.h),
                           side: const BorderSide(color: AppColors.primaryNavy),
@@ -602,7 +648,7 @@ class _SelfieStep extends ConsumerWidget {
                       child: OutlinedButton.icon(
                         onPressed: () => captureSelfie(ImageSource.gallery),
                         icon: Icon(Icons.photo_library_outlined, size: 18.sp),
-                        label: Text(context.isArabic ? 'من المعرض' : 'From Gallery'),
+                        label: Text(context.isArabic ? 'من المعرض' : 'Gallery'),
                         style: OutlinedButton.styleFrom(
                           padding: EdgeInsets.symmetric(vertical: 12.h),
                           side: const BorderSide(color: AppColors.borderSubtle),
@@ -612,27 +658,25 @@ class _SelfieStep extends ConsumerWidget {
                     ),
                   ],
                 ),
-                SizedBox(height: 16.h),
+                SizedBox(height: 18.h),
 
-                // Selfie Guidelines
+                // Guidelines
                 _GuidelinesCard(
                   guidelines: context.isArabic
                       ? const [
-                          'التقط الصورة في ضوء كافٍ وموزع بالتساوي على الوجه',
-                          'تأكد أن وجهك يظهر كاملاً داخل الإطار البيضاوي',
-                          'لا ترتدي نظارات شمسية أو قناعاً أثناء الالتقاط',
-                          'انظر مباشرةً إلى الكاميرا بتعبير محايد وواضح',
+                          'التقط الصورة في إضاءة واضحة ومباشرة على الوجه',
+                          'تجنب ارتداء نظارات شمسية أو قناع يغطي الملامح',
+                          'تأكد من مطابقة ملامح الصورة مع صورة بطاقتك الشخصية',
                         ]
                       : const [
-                          'Take photo in good, evenly distributed facial lighting',
-                          'Ensure your face fits inside the oval guide',
-                          'Do not wear sunglasses or masks during capture',
-                          'Look directly into camera with a clear, neutral expression',
+                          'Take photo in clear, direct lighting on your face',
+                          'Avoid wearing sunglasses or face masks',
+                          'Ensure features clearly match your National ID photo',
                         ],
                 ),
                 SizedBox(height: 24.h),
 
-                // Error display
+                // Error banner
                 if (state.errorMessage != null) ...[
                   _ErrorBanner(message: state.errorMessage!),
                   SizedBox(height: 16.h),
@@ -641,39 +685,27 @@ class _SelfieStep extends ConsumerWidget {
                 // Submit Button
                 SizedBox(
                   height: 52.h,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: state.hasSelfie
-                          ? AppColors.pinkGradient
-                          : null,
-                      color: state.hasSelfie
-                          ? null
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: state.hasSelfie
+                          ? AppColors.secondaryPink
                           : AppColors.borderSubtle,
-                      borderRadius: BorderRadius.circular(14.r),
-                    ),
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14.r),
-                        ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14.r),
                       ),
-                      onPressed: state.hasSelfie
-                          ? () => ref
-                              .read(verificationControllerProvider.notifier)
-                              .submitForAiVerification()
-                          : null,
-                      child: Text(
-                        context.isArabic
-                            ? 'إرسال للتحقق بالذكاء الاصطناعي'
-                            : 'Submit for AI Verification',
-                        style: AppTextStyles.labelLarge.copyWith(
-                          color: state.hasSelfie
-                              ? AppColors.surfaceWhite
-                              : AppColors.textSecondary,
-                          fontWeight: FontWeight.bold,
-                        ),
+                    ),
+                    onPressed: state.hasSelfie
+                        ? () => controller.submitVerificationRequest()
+                        : null,
+                    child: Text(
+                      context.isArabic
+                          ? 'إرسال طلب التوثيق للمراجعة الإدارية'
+                          : 'Submit Request for Admin Review',
+                      style: AppTextStyles.labelLarge.copyWith(
+                        color: state.hasSelfie
+                            ? AppColors.surfaceWhite
+                            : AppColors.textSecondary,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
@@ -689,10 +721,10 @@ class _SelfieStep extends ConsumerWidget {
 }
 
 // ============================================================================
-// PROCESSING VIEW
+// SUBMITTING VIEW
 // ============================================================================
-class _ProcessingView extends StatelessWidget {
-  const _ProcessingView({super.key});
+class _SubmittingView extends StatelessWidget {
+  const _SubmittingView({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -702,42 +734,17 @@ class _ProcessingView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Animated AI pulse indicator
             SizedBox(
-              width: 100.r,
-              height: 100.r,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 100.r,
-                    height: 100.r,
-                    child: CircularProgressIndicator(
-                      color: AppColors.secondaryPink,
-                      strokeWidth: 4.r,
-                    ),
-                  ),
-                  Container(
-                    width: 72.r,
-                    height: 72.r,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: AppColors.primaryGradient,
-                    ),
-                    child: Center(
-                      child: Icon(
-                        Icons.fingerprint_rounded,
-                        color: AppColors.surfaceWhite,
-                        size: 36.sp,
-                      ),
-                    ),
-                  ),
-                ],
+              width: 80.r,
+              height: 80.r,
+              child: const CircularProgressIndicator(
+                color: AppColors.secondaryPink,
+                strokeWidth: 3.5,
               ),
             ),
             SizedBox(height: 28.h),
             Text(
-              context.isArabic ? 'جارٍ التحقق من هويتك' : 'Verifying Your Identity',
+              context.isArabic ? 'جارٍ إرسال المستندات بأمان' : 'Submitting Documents Securely',
               style: AppTextStyles.headlineMedium.copyWith(
                 color: AppColors.primaryNavy,
                 fontWeight: FontWeight.bold,
@@ -747,30 +754,14 @@ class _ProcessingView extends StatelessWidget {
             SizedBox(height: 12.h),
             Text(
               context.isArabic
-                  ? 'يقوم الذكاء الاصطناعي بمطابقة بيانات البطاقة مع صورة السيلفي...\nيرجى الانتظار وعدم إغلاق التطبيق'
-                  : 'AI is matching your ID card with your selfie...\nPlease wait and do not close the app',
+                  ? 'يتم تشفير ورفع صورة البطاقة والصورة الشخصية لإرسالها إلى لوحة إدارة المنصة للمراجعة اليدوية...'
+                  : 'Encrypting and uploading your documents to the admin review queue for manual approval...',
               style: AppTextStyles.bodyMedium.copyWith(
                 color: AppColors.textSecondary,
                 height: 1.5,
               ),
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: 32.h),
-            _ProcessingStep(
-                icon: Icons.badge_outlined,
-                label: context.isArabic ? 'فحص وثيقة الهوية' : 'Checking ID document'),
-            SizedBox(height: 12.h),
-            _ProcessingStep(
-                icon: Icons.text_fields_rounded,
-                label: context.isArabic ? 'استخراج بيانات OCR' : 'Extracting OCR data'),
-            SizedBox(height: 12.h),
-            _ProcessingStep(
-                icon: Icons.face_retouching_natural_rounded,
-                label: context.isArabic ? 'مطابقة الوجه البيومترية' : 'Biometric face matching'),
-            SizedBox(height: 12.h),
-            _ProcessingStep(
-                icon: Icons.verified_user_rounded,
-                label: context.isArabic ? 'التحقق من الحيوية' : 'Liveness verification'),
           ],
         ),
       ),
@@ -778,128 +769,274 @@ class _ProcessingView extends StatelessWidget {
   }
 }
 
-class _ProcessingStep extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _ProcessingStep({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 32.r,
-          height: 32.r,
-          decoration: const BoxDecoration(
-            color: AppColors.lightPink,
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Icon(icon, color: AppColors.secondaryPink, size: 16.sp),
-          ),
-        ),
-        SizedBox(width: 12.w),
-        Text(
-          label,
-          style: AppTextStyles.bodyMedium.copyWith(color: AppColors.primaryNavy),
-        ),
-      ],
-    );
-  }
-}
-
 // ============================================================================
-// RESULT VIEW — VERIFIED / FAILED / MANUAL_REVIEW
+// RESULT VIEW — PENDING / VERIFIED / REJECTED
 // ============================================================================
 class _ResultView extends ConsumerWidget {
-  final String? errorMessage;
-
-  const _ResultView({super.key, this.errorMessage});
+  const _ResultView({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(verificationControllerProvider);
     final controller = ref.read(verificationControllerProvider.notifier);
-    final status = state.finalStatus ?? VerificationStatusType.failed;
+    final profile = ref.watch(currentUserProfileProvider);
+
+    // Registered user's real name (never an AI extracted random name)
+    final registeredFullName = profile?.fullName ??
+        state.currentRecord?.userFullName ??
+        'صاحب الحساب المسجل';
+
+    final status = state.finalStatus ?? VerificationStatusType.pending;
 
     return switch (status) {
-      VerificationStatusType.verified => _VerifiedView(
-          extractedName: state.aiResult?.extractedName ??
-              state.existingRecord?.extractedName,
-          score: state.aiResult?.faceMatchScore ??
-              state.existingRecord?.faceMatchScore,
+      VerificationStatusType.verified => _VerifiedSuccessView(
+          fullName: registeredFullName,
         ),
-      VerificationStatusType.failed => _FailedView(
-          idCardBytes: state.idCardBytes,
-          selfieBytes: state.selfieBytes,
-          idCardUrl: state.idCardUrl,
-          selfieUrl: state.selfieUrl,
-          rejectionReason: state.aiResult?.rejectionReason ??
-              state.existingRecord?.rejectionReason ??
-              'حدث خطأ أثناء عملية التوثيق. يرجى التحقق من الصور وإعادة المحاولة',
-          onRetryNewImages: controller.retryWithNewImages,
-          onResubmitSame:
-              state.idCardBytes != null && state.selfieBytes != null
-                  ? controller.resubmitSameImages
-                  : null,
+      VerificationStatusType.failed => _RejectedView(
+          fullName: registeredFullName,
+          rejectionReason: state.currentRecord?.rejectionReason ??
+              state.errorMessage ??
+              (context.isArabic
+                  ? 'تم رفض طلب التوثيق لعدم وضوح صورة بطاقة الرقم القومي أو عدم تطابقها مع الصورة الشخصية.'
+                  : 'Verification rejected due to unreadable ID or mismatch with personal photo.'),
+          onRetry: controller.retryWithNewImages,
         ),
-      VerificationStatusType.manualReview => const _ManualReviewView(),
-      _ => _FailedView(
-          idCardBytes: state.idCardBytes,
-          selfieBytes: state.selfieBytes,
-          idCardUrl: state.idCardUrl,
-          selfieUrl: state.selfieUrl,
-          rejectionReason:
-              'حدث خطأ أثناء عملية التوثيق. يرجى التحقق من الصور وإعادة المحاولة',
-          onRetryNewImages: controller.retryWithNewImages,
-          onResubmitSame: null,
+      _ => _PendingReviewView(
+          fullName: registeredFullName,
+          noticeMessage: state.noticeMessage ??
+              'تم استلام طلب توثيق حسابك بنجاح. برجاء الانتظار، سيتم مراجعة طلبك خلال 15 دقيقة.',
         ),
     };
   }
 }
 
 // ============================================================================
-// VERIFIED SUCCESS VIEW
+// PENDING REVIEW VIEW (WITH THE 15-MINUTE GUARANTEE NOTICE)
 // ============================================================================
-class _VerifiedView extends StatelessWidget {
-  final String? extractedName;
-  final double? score;
+class _PendingReviewView extends StatelessWidget {
+  final String fullName;
+  final String noticeMessage;
 
-  const _VerifiedView({this.extractedName, this.score});
+  const _PendingReviewView({
+    required this.fullName,
+    required this.noticeMessage,
+  });
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 32.h),
+      padding: EdgeInsets.symmetric(horizontal: 22.w, vertical: 32.h),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Success badge
+          // Pending Icon
           Center(
             child: Container(
-              width: 110.r,
-              height: 110.r,
+              width: 96.r,
+              height: 96.r,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.warningOrange.withValues(alpha: 0.12),
+                border: Border.all(color: AppColors.warningOrange, width: 3),
+              ),
+              child: Center(
+                child: Icon(
+                  Icons.hourglass_top_rounded,
+                  color: AppColors.warningOrange,
+                  size: 48.sp,
+                ),
+              ),
+            ),
+          ),
+          SizedBox(height: 20.h),
+
+          // Headline
+          Text(
+            context.isArabic ? 'طلبك قيد المراجعة' : 'Your Request is Under Review',
+            style: AppTextStyles.headlineMedium.copyWith(
+              color: AppColors.warningOrange,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          SizedBox(height: 14.h),
+
+          // Required 15-minute prompt notice banner
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 18.w, vertical: 16.h),
+            decoration: BoxDecoration(
+              color: AppColors.warningOrange.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(16.r),
+              border: Border.all(
+                color: AppColors.warningOrange.withValues(alpha: 0.35),
+                width: 1.5,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.timer_outlined,
+                  color: AppColors.warningOrange,
+                  size: 24.sp,
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: Text(
+                    noticeMessage,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppColors.primaryNavy,
+                      fontWeight: FontWeight.w700,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 24.h),
+
+          // User & Review Details Card
+          Container(
+            padding: EdgeInsets.all(20.r),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceWhite,
+              borderRadius: BorderRadius.circular(20.r),
+              border: Border.all(color: AppColors.borderSubtle),
+              boxShadow: const [
+                BoxShadow(
+                  color: AppColors.cardShadowColor,
+                  blurRadius: 10,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                _ResultRow(
+                  icon: Icons.person_outline_rounded,
+                  label: context.isArabic ? 'صاحب الحساب' : 'Account Holder',
+                  value: fullName,
+                ),
+                Divider(height: 24.h, color: AppColors.borderSubtle),
+                _ResultRow(
+                  icon: Icons.pending_actions_rounded,
+                  label: context.isArabic ? 'حالة الطلب' : 'Request Status',
+                  value: context.isArabic ? 'في انتظار مراجعة الإدارة' : 'Pending Admin Approval',
+                  valueColor: AppColors.warningOrange,
+                ),
+                Divider(height: 24.h, color: AppColors.borderSubtle),
+                _ResultRow(
+                  icon: Icons.access_time_rounded,
+                  label: context.isArabic ? 'المدة المستهدفة' : 'Target Window',
+                  value: context.isArabic ? 'خلال 15 دقيقة' : 'Within 15 minutes',
+                  valueColor: AppColors.primaryNavy,
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 24.h),
+
+          // Explanatory info box
+          Container(
+            padding: EdgeInsets.all(16.r),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceWhite,
+              borderRadius: BorderRadius.circular(16.r),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.isArabic ? 'آلية المراجعة الإدارية:' : 'Manual Review Process:',
+                  style: AppTextStyles.titleSmall.copyWith(
+                    color: AppColors.primaryNavy,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                _InfoBullet(
+                  text: context.isArabic
+                      ? 'يقوم فريق الإدارة بفحص المستندات والصورة الشخصية يدوياً لضمان سلامة وجودة الحسابات.'
+                      : 'Our admin team manually inspects submitted ID and photo for community safety.',
+                ),
+                _InfoBullet(
+                  text: context.isArabic
+                      ? 'مدة 15 دقيقة هي المدة المستهدفة للمراجعة ولا تعني الاعتماد التلقائي.'
+                      : 'The 15-minute timeframe is our review target and does not mean automatic approval.',
+                ),
+                _InfoBullet(
+                  text: context.isArabic
+                      ? 'سيتم تفعيل شارة التوثيق الزرقاء وفتح إمكانية المحادثات بمجرد اعتماد الإدارة لطلبك.'
+                      : 'The verified badge and chats unlock as soon as administration formally approves.',
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 28.h),
+
+          // Return Home Button
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryNavy,
+              minimumSize: Size(double.infinity, 52.h),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14.r),
+              ),
+            ),
+            child: Text(
+              context.isArabic ? 'العودة للرئيسية' : 'Back to Home',
+              style: AppTextStyles.labelLarge.copyWith(
+                color: AppColors.surfaceWhite,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// VERIFIED SUCCESS VIEW (AFTER ACTUAL ADMIN APPROVAL)
+// ============================================================================
+class _VerifiedSuccessView extends StatelessWidget {
+  final String fullName;
+
+  const _VerifiedSuccessView({required this.fullName});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.symmetric(horizontal: 22.w, vertical: 32.h),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 100.r,
+              height: 100.r,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.successGreen.withValues(alpha: 0.12),
-                border: Border.all(
-                    color: AppColors.successGreen, width: 3),
+                border: Border.all(color: AppColors.successGreen, width: 3),
               ),
               child: Center(
                 child: Icon(
                   Icons.verified_rounded,
                   color: AppColors.successGreen,
-                  size: 56.sp,
+                  size: 52.sp,
                 ),
               ),
             ),
           ),
-          SizedBox(height: 24.h),
+          SizedBox(height: 20.h),
 
           Text(
-            context.isArabic ? 'تم التوثيق بنجاح! ✅' : 'Verified Successfully! ✅',
+            context.isArabic ? 'تم توثيق حسابك بنجاح! ✅' : 'Account Verified Successfully! ✅',
             style: AppTextStyles.headlineMedium.copyWith(
               color: AppColors.successGreen,
               fontWeight: FontWeight.bold,
@@ -909,57 +1046,38 @@ class _VerifiedView extends StatelessWidget {
           SizedBox(height: 8.h),
           Text(
             context.isArabic
-                ? 'هويتك موثقة وحسابك مفعّل بالكامل. يمكنك الآن التواصل مع التوافقات.'
-                : 'Your identity is verified and your account is active. You can now connect with matches.',
+                ? 'تمت مراجعة واعتماد هويتك من قِبل إدارة المنصة. حسابك الآن موثق بالعلامة الزرقاء، ويمكنك التواصل مع كافة التوافقات بكل ثقة.'
+                : 'Your identity has been reviewed and approved by platform administration. You can now chat with your matches.',
             style: AppTextStyles.bodyMedium.copyWith(
-                color: AppColors.textSecondary, height: 1.5),
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: 28.h),
 
-          // Result Details Card
+          // Details Card
           Container(
             padding: EdgeInsets.all(20.r),
             decoration: BoxDecoration(
               color: AppColors.surfaceWhite,
               borderRadius: BorderRadius.circular(20.r),
               border: Border.all(
-                  color: AppColors.successGreen.withValues(alpha: 0.3)),
-              boxShadow: const [
-                BoxShadow(
-                    color: AppColors.cardShadowColor,
-                    blurRadius: 10,
-                    offset: Offset(0, 3)),
-              ],
+                color: AppColors.successGreen.withValues(alpha: 0.3),
+              ),
             ),
             child: Column(
               children: [
-                if (extractedName != null) ...[
-                  _ResultRow(
-                    icon: Icons.person_rounded,
-                    label: context.isArabic ? 'الاسم المُستخرج' : 'Extracted Name',
-                    value: extractedName!,
-                  ),
-                  Divider(height: 24.h, color: AppColors.borderSubtle),
-                ],
                 _ResultRow(
-                  icon: Icons.face_retouching_natural_rounded,
-                  label: context.isArabic ? 'نسبة تطابق الوجه' : 'Face Match Score',
-                  value: '${score?.toStringAsFixed(0) ?? '—'}%',
-                  valueColor: AppColors.successGreen,
+                  icon: Icons.person_rounded,
+                  label: context.isArabic ? 'الاسم المسجل' : 'Registered Name',
+                  value: fullName,
                 ),
                 Divider(height: 24.h, color: AppColors.borderSubtle),
                 _ResultRow(
-                  icon: Icons.security_rounded,
-                  label: context.isArabic ? 'التحقق من الحيوية' : 'Liveness Verification',
-                  value: context.isArabic ? 'ناجح' : 'Passed',
-                  valueColor: AppColors.successGreen,
-                ),
-                Divider(height: 24.h, color: AppColors.borderSubtle),
-                _ResultRow(
-                  icon: Icons.badge_rounded,
-                  label: context.isArabic ? 'حالة التوثيق' : 'Verification Status',
-                  value: context.isArabic ? 'موثق' : 'Verified',
+                  icon: Icons.verified_user_rounded,
+                  label: context.isArabic ? 'حالة الحساب' : 'Account Status',
+                  value: context.isArabic ? 'موثق ومعتمد رسمياً' : 'Verified & Approved',
                   valueColor: AppColors.successGreen,
                 ),
               ],
@@ -972,6 +1090,9 @@ class _VerifiedView extends StatelessWidget {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.successGreen,
               minimumSize: Size(double.infinity, 52.h),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14.r),
+              ),
             ),
             child: Text(
               context.isArabic ? 'العودة للرئيسية' : 'Back to Home',
@@ -988,35 +1109,26 @@ class _VerifiedView extends StatelessWidget {
 }
 
 // ============================================================================
-// FAILED VIEW WITH SIDE-BY-SIDE PREVIEW
+// REJECTED VIEW (AFTER ADMIN REJECTION WITH REASON)
 // ============================================================================
-class _FailedView extends StatelessWidget {
-  final Uint8List? idCardBytes;
-  final Uint8List? selfieBytes;
-  final String? idCardUrl;
-  final String? selfieUrl;
+class _RejectedView extends StatelessWidget {
+  final String fullName;
   final String rejectionReason;
-  final VoidCallback onRetryNewImages;
-  final Future<void> Function()? onResubmitSame;
+  final VoidCallback onRetry;
 
-  const _FailedView({
-    this.idCardBytes,
-    this.selfieBytes,
-    this.idCardUrl,
-    this.selfieUrl,
+  const _RejectedView({
+    required this.fullName,
     required this.rejectionReason,
-    required this.onRetryNewImages,
-    this.onResubmitSame,
+    required this.onRetry,
   });
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 28.h),
+      padding: EdgeInsets.symmetric(horizontal: 22.w, vertical: 32.h),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Error Icon
           Center(
             child: Container(
               width: 90.r,
@@ -1027,233 +1139,92 @@ class _FailedView extends StatelessWidget {
                 border: Border.all(color: AppColors.errorRed, width: 2.5),
               ),
               child: Center(
-                child: Icon(Icons.error_outline_rounded,
-                    color: AppColors.errorRed, size: 46.sp),
+                child: Icon(
+                  Icons.cancel_rounded,
+                  color: AppColors.errorRed,
+                  size: 48.sp,
+                ),
               ),
             ),
           ),
           SizedBox(height: 20.h),
 
           Text(
-            context.isArabic ? 'فشل التوثيق' : 'Verification Failed',
+            context.isArabic ? 'تم رفض طلب التوثيق' : 'Verification Request Rejected',
             style: AppTextStyles.headlineMedium.copyWith(
               color: AppColors.errorRed,
               fontWeight: FontWeight.bold,
             ),
             textAlign: TextAlign.center,
           ),
-          SizedBox(height: 10.h),
+          SizedBox(height: 12.h),
 
+          // Rejection reason banner
           Container(
-            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
             decoration: BoxDecoration(
-              color: AppColors.errorRed.withValues(alpha: 0.06),
+              color: AppColors.errorRed.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(14.r),
               border: Border.all(
-                  color: AppColors.errorRed.withValues(alpha: 0.2)),
-            ),
-            child: Text(
-              rejectionReason,
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: AppColors.errorRed,
-                height: 1.5,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          SizedBox(height: 24.h),
-
-          // Side-by-side images (if available)
-          if (idCardBytes != null || selfieBytes != null) ...[
-            Text(
-              context.isArabic ? 'مقارنة الصور المرفوعة' : 'Uploaded Photos Comparison',
-              style: AppTextStyles.titleMedium.copyWith(
-                color: AppColors.primaryNavy,
-                fontWeight: FontWeight.bold,
+                color: AppColors.errorRed.withValues(alpha: 0.25),
               ),
             ),
-            SizedBox(height: 12.h),
-            Row(
+            child: Column(
               children: [
-                Expanded(
-                  child: _ImagePreviewCard(
-                    label: context.isArabic ? 'صورة البطاقة' : 'ID Card Photo',
-                    bytes: idCardBytes,
-                    icon: Icons.badge_outlined,
-                  ),
+                Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded,
+                        color: AppColors.errorRed, size: 20.sp),
+                    SizedBox(width: 8.w),
+                    Text(
+                      context.isArabic ? 'سبب الرفض من الإدارة:' : 'Rejection Reason:',
+                      style: AppTextStyles.labelMedium.copyWith(
+                        color: AppColors.errorRed,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
-                SizedBox(width: 12.w),
-                Expanded(
-                  child: _ImagePreviewCard(
-                    label: context.isArabic ? 'السيلفي' : 'Selfie',
-                    bytes: selfieBytes,
-                    icon: Icons.face_outlined,
+                SizedBox(height: 6.h),
+                Text(
+                  rejectionReason,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.errorRed,
+                    height: 1.5,
                   ),
+                  textAlign: TextAlign.center,
                 ),
               ],
-            ),
-            SizedBox(height: 24.h),
-          ],
-
-          // Action Buttons
-          SizedBox(
-            height: 52.h,
-            child: ElevatedButton.icon(
-              onPressed: onRetryNewImages,
-              icon: Icon(Icons.upload_file_rounded, size: 20.sp),
-              label: Text(context.isArabic ? 'إعادة رفع الصور' : 'Upload New Photos'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.secondaryPink,
-              ),
-            ),
-          ),
-          if (onResubmitSame != null) ...[
-            SizedBox(height: 12.h),
-            SizedBox(
-              height: 52.h,
-              child: OutlinedButton.icon(
-                onPressed: onResubmitSame,
-                icon: Icon(Icons.refresh_rounded, size: 20.sp),
-                label: Text(context.isArabic ? 'إعادة الإرسال بنفس الصور' : 'Resubmit Same Photos'),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.primaryNavy),
-                  foregroundColor: AppColors.primaryNavy,
-                ),
-              ),
-            ),
-          ],
-          SizedBox(height: 12.h),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(
-              context.isArabic ? 'العودة لاحقاً' : 'Return Later',
-              style: AppTextStyles.labelMedium
-                  .copyWith(color: AppColors.textSecondary),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// MANUAL REVIEW VIEW
-// ============================================================================
-class _ManualReviewView extends StatelessWidget {
-  const _ManualReviewView();
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 40.h),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 100.r,
-              height: 100.r,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.warningOrange.withValues(alpha: 0.12),
-                border: Border.all(color: AppColors.warningOrange, width: 3),
-              ),
-              child: Center(
-                child: Icon(Icons.pending_actions_rounded,
-                    color: AppColors.warningOrange, size: 50.sp),
-              ),
             ),
           ),
           SizedBox(height: 28.h),
 
-          Text(
-            context.isArabic ? 'طلبك قيد المراجعة' : 'Your Request is Under Review',
-            style: AppTextStyles.headlineMedium.copyWith(
-              color: AppColors.warningOrange,
-              fontWeight: FontWeight.bold,
+          // Retry button
+          SizedBox(
+            height: 52.h,
+            child: ElevatedButton.icon(
+              onPressed: onRetry,
+              icon: Icon(Icons.refresh_rounded, size: 20.sp),
+              label: Text(
+                context.isArabic ? 'إعادة تقديم طلب التوثيق' : 'Resubmit Verification Request',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.secondaryPink,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14.r),
+                ),
+              ),
             ),
-            textAlign: TextAlign.center,
           ),
           SizedBox(height: 12.h),
-          Text(
-            context.isArabic
-                ? 'طلبك قيد المراجعة بواسطة فريق العمل للتأكد من البيانات.\nسيتم إخطارك بالنتيجة خلال 24-48 ساعة.'
-                : 'Your request is being reviewed by our team to verify details.\nYou will be notified within 24-48 hours.',
-            style: AppTextStyles.bodyMedium
-                .copyWith(color: AppColors.textSecondary, height: 1.6),
-            textAlign: TextAlign.center,
-          ),
-          SizedBox(height: 32.h),
 
-          Container(
-            padding: EdgeInsets.all(20.r),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceWhite,
-              borderRadius: BorderRadius.circular(20.r),
-              border: Border.all(
-                  color: AppColors.warningOrange.withValues(alpha: 0.3)),
-            ),
-            child: Column(
-              children: [
-                Icon(Icons.access_time_rounded,
-                    color: AppColors.warningOrange, size: 28.sp),
-                SizedBox(height: 8.h),
-                Text(
-                  context.isArabic ? 'ماذا يحدث الآن؟' : 'What happens now?',
-                  style: AppTextStyles.titleMedium.copyWith(
-                      color: AppColors.primaryNavy,
-                      fontWeight: FontWeight.bold),
-                ),
-                SizedBox(height: 12.h),
-                _InfoItem(label: context.isArabic
-                    ? 'يراجع فريقنا صورة بطاقتك والسيلفي يدوياً'
-                    : 'Our team manually reviews your ID card and selfie'),
-                _InfoItem(label: context.isArabic
-                    ? 'لن تُخزَّن بياناتك إلا بالقدر الضروري للتوثيق'
-                    : 'Your data is only stored as needed for verification'),
-                _InfoItem(label: context.isArabic
-                    ? 'ستتلقى إشعاراً فور اتخاذ القرار'
-                    : 'You will receive a notification as soon as a decision is made'),
-              ],
-            ),
-          ),
-          SizedBox(height: 32.h),
-
-          ElevatedButton(
+          TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(
               context.isArabic ? 'العودة للرئيسية' : 'Back to Home',
-              style: AppTextStyles.labelLarge.copyWith(
-                color: AppColors.surfaceWhite,
-                fontWeight: FontWeight.bold,
+              style: AppTextStyles.labelMedium.copyWith(
+                color: AppColors.textSecondary,
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoItem extends StatelessWidget {
-  final String label;
-  const _InfoItem({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4.h),
-      child: Row(
-        children: [
-          Icon(Icons.check_circle_outline_rounded,
-              color: AppColors.warningOrange, size: 16.sp),
-          SizedBox(width: 8.w),
-          Expanded(
-            child: Text(
-              label,
-              style: AppTextStyles.bodySmall
-                  .copyWith(color: AppColors.textSecondary),
             ),
           ),
         ],
@@ -1263,138 +1234,8 @@ class _InfoItem extends StatelessWidget {
 }
 
 // ============================================================================
-// REUSABLE COMPONENTS
+// HELPER WIDGETS
 // ============================================================================
-class _GuidelinesCard extends StatelessWidget {
-  final List<String> guidelines;
-  const _GuidelinesCard({required this.guidelines});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(16.r),
-      decoration: BoxDecoration(
-        color: AppColors.primaryNavy.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppColors.primaryNavy.withValues(alpha: 0.1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.lightbulb_outline_rounded,
-                  color: AppColors.primaryNavy, size: 18.sp),
-              SizedBox(width: 8.w),
-              Text(
-                context.isArabic ? 'نصائح لصورة واضحة' : 'Tips for a Clear Photo',
-                style: AppTextStyles.labelLarge.copyWith(
-                  color: AppColors.primaryNavy,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 10.h),
-          ...guidelines.map(
-            (g) => Padding(
-              padding: EdgeInsets.only(bottom: 6.h),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('• ',
-                      style: AppTextStyles.bodySmall
-                          .copyWith(color: AppColors.secondaryPink)),
-                  Expanded(
-                    child: Text(
-                      g,
-                      style: AppTextStyles.bodySmall
-                          .copyWith(color: AppColors.textSecondary, height: 1.4),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  final String message;
-  const _ErrorBanner({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
-      decoration: BoxDecoration(
-        color: AppColors.errorRed.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: AppColors.errorRed.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline_rounded,
-              color: AppColors.errorRed, size: 18.sp),
-          SizedBox(width: 8.w),
-          Expanded(
-            child: Text(
-              message,
-              style: AppTextStyles.bodySmall.copyWith(color: AppColors.errorRed),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ImagePreviewCard extends StatelessWidget {
-  final String label;
-  final Uint8List? bytes;
-  final IconData icon;
-
-  const _ImagePreviewCard({
-    required this.label,
-    required this.bytes,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: AppTextStyles.labelMedium
-              .copyWith(color: AppColors.primaryNavy, fontWeight: FontWeight.bold),
-        ),
-        SizedBox(height: 8.h),
-        Container(
-          height: 130.h,
-          decoration: BoxDecoration(
-            color: AppColors.lightPink,
-            borderRadius: BorderRadius.circular(16.r),
-            border: Border.all(color: AppColors.borderSubtle),
-          ),
-          child: bytes != null
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(14.r),
-                  child: Image.memory(bytes!, fit: BoxFit.cover, width: double.infinity),
-                )
-              : Center(
-                  child: Icon(icon,
-                      color: AppColors.secondaryPink, size: 40.sp),
-                ),
-        ),
-      ],
-    );
-  }
-}
-
 class _ResultRow extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -1412,35 +1253,165 @@ class _ResultRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          padding: EdgeInsets.all(8.r),
-          decoration: const BoxDecoration(
-            color: AppColors.offWhite,
-            shape: BoxShape.circle,
+        Icon(icon, color: AppColors.textSecondary, size: 20.sp),
+        SizedBox(width: 10.w),
+        Text(
+          label,
+          style: AppTextStyles.bodyMedium.copyWith(
+            color: AppColors.textSecondary,
           ),
-          child: Icon(icon, color: AppColors.primaryNavy, size: 18.sp),
         ),
-        SizedBox(width: 12.w),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: AppTextStyles.labelSmall
-                    .copyWith(color: AppColors.textSecondary),
+        const Spacer(),
+        Flexible(
+          child: Text(
+            value,
+            style: AppTextStyles.titleSmall.copyWith(
+              color: valueColor ?? AppColors.primaryNavy,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.end,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoBullet extends StatelessWidget {
+  final String text;
+
+  const _InfoBullet({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.h),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.check_circle_outline_rounded,
+            color: AppColors.warningOrange,
+            size: 16.sp,
+          ),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTextStyles.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.4,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GuidelinesCard extends StatelessWidget {
+  final List<String> guidelines;
+
+  const _GuidelinesCard({required this.guidelines});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(16.r),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceWhite,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.lightbulb_outline_rounded,
+                color: AppColors.secondaryPink,
+                size: 20.sp,
+              ),
+              SizedBox(width: 8.w),
               Text(
-                value,
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: valueColor ?? AppColors.textPrimary,
+                context.isArabic ? 'إرشادات لقبول المستندات' : 'Document Guidelines',
+                style: AppTextStyles.titleSmall.copyWith(
+                  color: AppColors.primaryNavy,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ],
           ),
+          SizedBox(height: 10.h),
+          ...guidelines.map(
+            (g) => Padding(
+              padding: EdgeInsets.symmetric(vertical: 3.h),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.circle,
+                    color: AppColors.secondaryPink,
+                    size: 6.sp,
+                  ),
+                  SizedBox(width: 8.w),
+                  Expanded(
+                    child: Text(
+                      g,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  final String message;
+
+  const _ErrorBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
+      decoration: BoxDecoration(
+        color: AppColors.errorRed.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12.r),
+        border: Border.all(
+          color: AppColors.errorRed.withValues(alpha: 0.3),
         ),
-      ],
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.error_outline_rounded,
+            color: AppColors.errorRed,
+            size: 20.sp,
+          ),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodySmall.copyWith(
+                color: AppColors.errorRed,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

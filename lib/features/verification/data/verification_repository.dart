@@ -1,5 +1,4 @@
 import 'dart:developer' as developer;
-import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,26 +7,20 @@ import '../../../core/network/supabase_client.dart';
 import '../../profile/domain/user_profile.dart';
 import '../domain/identity_verification.dart';
 
-/// Result of the AI verification pipeline.
-class AiVerificationResult {
-  final double faceMatchScore;
-  final bool livenessPassed;
-  final String? extractedName;
-  final DateTime? extractedBirthDate;
-  final VerificationStatusType status;
-  final String? rejectionReason;
+/// Result returned after submitting a verification request.
+class VerificationSubmissionResult {
+  final bool success;
+  final String message;
+  final IdentityVerification verification;
 
-  const AiVerificationResult({
-    required this.faceMatchScore,
-    required this.livenessPassed,
-    this.extractedName,
-    this.extractedBirthDate,
-    required this.status,
-    this.rejectionReason,
+  const VerificationSubmissionResult({
+    required this.success,
+    required this.message,
+    required this.verification,
   });
 }
 
-/// Repository managing identity document uploads and AI verification pipeline.
+/// Repository managing identity document uploads and manual admin verification workflow.
 class VerificationRepository {
   final SupabaseClient _client;
 
@@ -71,160 +64,114 @@ class VerificationRepository {
   }
 
   // ---------------------------------------------------------------------------
-  // Client-Side AI Verification Engine
-  // Simulates the following pipeline:
-  //   1. ID Document Validation (presence check via byte analysis)
-  //   2. OCR Field Extraction (realistic Arabic name + birth date generation)
-  //   3. Face Matching (score 0-100 computed from image byte heuristics)
-  //   4. Liveness Detection (evaluation via image variance heuristics)
-  //   5. Status determination: VERIFIED / FAILED / MANUAL_REVIEW
+  // Submit verification request to Admin queue (Manual Review Workflow)
+  // 1. Sets status to PENDING
+  // 2. Returns expected review notification:
+  //    «تم استلام طلب توثيق حسابك بنجاح. برجاء الانتظار، سيتم مراجعة طلبك خلال 15 دقيقة.»
   // ---------------------------------------------------------------------------
-  Future<AiVerificationResult> processAiVerification({
-    required Uint8List idBytes,
-    required Uint8List selfieBytes,
-  }) async {
-    // Simulate processing delay (real AI pipeline latency)
-    await Future.delayed(const Duration(seconds: 2));
-
-    // 1. ID Document Presence Validation (minimum viable image size)
-    if (idBytes.length < 5000) {
-      return AiVerificationResult(
-        faceMatchScore: 0,
-        livenessPassed: false,
-        status: VerificationStatusType.failed,
-        rejectionReason: 'صورة البطاقة غير واضحة أو بجودة منخفضة جداً',
-      );
-    }
-
-    if (selfieBytes.length < 3000) {
-      return AiVerificationResult(
-        faceMatchScore: 0,
-        livenessPassed: false,
-        status: VerificationStatusType.failed,
-        rejectionReason: 'صورة السيلفي غير واضحة أو بجودة منخفضة جداً',
-      );
-    }
-
-    // 2. OCR Extraction Simulation
-    final rng = Random(idBytes.length ^ selfieBytes.length);
-    final sampleNames = [
-      'محمد أحمد عبد الله السيد',
-      'فاطمة محمود إبراهيم عمر',
-      'أحمد محمد علي حسن',
-      'نور الهدى عبد الرحمن يوسف',
-      'عبد الرحمن سامي الشريف',
-    ];
-    final extractedName = sampleNames[rng.nextInt(sampleNames.length)];
-    final birthYear = 1985 + rng.nextInt(20);
-    final extractedBirthDate = DateTime(birthYear, 1 + rng.nextInt(12), 1 + rng.nextInt(28));
-
-    // 3. Face Match Score Computation
-    // Derived from XOR byte checksum ratio between ID and selfie byte streams
-    int idChecksum = 0;
-    int selfieChecksum = 0;
-    final sampleSize = min(512, min(idBytes.length, selfieBytes.length));
-
-    for (int i = 0; i < sampleSize; i++) {
-      idChecksum ^= idBytes[i];
-      selfieChecksum ^= selfieBytes[i];
-    }
-
-    // Normalize to a realistic confidence score [55, 99]
-    final rawDiff = (idChecksum ^ selfieChecksum).abs();
-    final normalizedScore = 55.0 + (rawDiff % 45);
-    final faceMatchScore = normalizedScore.clamp(55.0, 99.0);
-
-    // 4. Liveness Detection Simulation
-    // Real liveness = texture analysis; here we use image size variance as proxy
-    final sizeDiff = (idBytes.length - selfieBytes.length).abs();
-    final livenessIndicator = sizeDiff % 10;
-    final livenessPassed = livenessIndicator > 2;
-
-    // 5. Status Determination per Business Rules
-    //   Score >= 80 && liveness → VERIFIED
-    //   Score < 50 || !liveness → FAILED
-    //   50 <= score < 80          → MANUAL_REVIEW
-    final VerificationStatusType status;
-    final String? rejectionReason;
-
-    if (faceMatchScore >= 80 && livenessPassed) {
-      status = VerificationStatusType.verified;
-      rejectionReason = null;
-    } else if (faceMatchScore < 50 || !livenessPassed) {
-      status = VerificationStatusType.failed;
-      rejectionReason = livenessPassed
-          ? 'نسبة تطابق الوجه مع صورة البطاقة أقل من الحد المطلوب'
-          : 'فشل التحقق من حيوية الصورة — يُرجى التقاط صورة سيلفي حية مباشرة';
-    } else {
-      status = VerificationStatusType.manualReview;
-      rejectionReason = null;
-    }
-
-    return AiVerificationResult(
-      faceMatchScore: faceMatchScore,
-      livenessPassed: livenessPassed,
-      extractedName: extractedName,
-      extractedBirthDate: extractedBirthDate,
-      status: status,
-      rejectionReason: rejectionReason,
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Submit verification result to Supabase via RPC with direct-query fallback.
-  // ---------------------------------------------------------------------------
-  Future<void> submitVerification({
+  Future<VerificationSubmissionResult> submitVerificationRequest({
     required String idCardUrl,
     required String selfieUrl,
-    required AiVerificationResult aiResult,
   }) async {
     final uid = _userId;
     if (uid == null) throw 'يجب تسجيل الدخول لإرسال طلب التوثيق';
 
+    const promptMessage =
+        'تم استلام طلب توثيق حسابك بنجاح. برجاء الانتظار، سيتم مراجعة طلبك خلال 15 دقيقة.';
+
+    // Fetch user profile for full name
+    String? userFullName;
     try {
-      await _client.rpc(
+      final profileData = await _client
+          .from(SupabaseConstants.profilesTable)
+          .select('full_name')
+          .eq('id', uid)
+          .maybeSingle();
+      if (profileData != null) {
+        userFullName = profileData['full_name'] as String?;
+      }
+    } catch (_) {}
+
+    // Try RPC first
+    try {
+      final rpcRes = await _client.rpc(
         'submit_identity_verification',
         params: {
           'p_id_url': idCardUrl,
           'p_selfie_url': selfieUrl,
-          'p_ocr_name': aiResult.extractedName,
-          'p_birth_date': aiResult.extractedBirthDate?.toIso8601String().split('T').first,
-          'p_score': aiResult.faceMatchScore,
-          'p_liveness': aiResult.livenessPassed,
-          'p_status': aiResult.status.toDbValue(),
         },
       );
-      return;
+
+      final recordId = rpcRes is Map ? (rpcRes['record_id'] as String? ?? 'verif-$uid') : 'verif-$uid';
+
+      final verification = IdentityVerification(
+        id: recordId,
+        userId: uid,
+        userFullName: userFullName,
+        idCardImageUrl: idCardUrl,
+        selfieImageUrl: selfieUrl,
+        status: VerificationStatusType.pending,
+        rejectionReason: null,
+        createdAt: DateTime.now(),
+      );
+
+      return VerificationSubmissionResult(
+        success: true,
+        message: promptMessage,
+        verification: verification,
+      );
     } catch (e, stack) {
-      developer.log('RPC submit_identity_verification failed, using fallback: $e',
-          error: e, stackTrace: stack);
+      developer.log(
+        'RPC submit_identity_verification failed, falling back to direct table query: $e',
+        error: e,
+        stackTrace: stack,
+      );
     }
 
-    // Direct-query fallback
+    // Direct table upsert fallback
     try {
-      await _client.from(SupabaseConstants.identityVerificationsTable).upsert(
+      final res = await _client.from(SupabaseConstants.identityVerificationsTable).upsert(
         {
           'user_id': uid,
           'id_card_image_url': idCardUrl,
           'selfie_image_url': selfieUrl,
-          'extracted_name': aiResult.extractedName,
-          'extracted_birth_date':
-              aiResult.extractedBirthDate?.toIso8601String().split('T').first,
-          'face_match_score': aiResult.faceMatchScore,
-          'liveness_passed': aiResult.livenessPassed,
-          'status': aiResult.status.toDbValue(),
-          'rejection_reason': aiResult.rejectionReason,
+          'status': VerificationStatusType.pending.toDbValue(),
+          'rejection_reason': null,
+          'created_at': DateTime.now().toIso8601String(),
         },
         onConflict: 'user_id',
-      );
+      ).select().maybeSingle();
 
+      // Sync verification_status to PENDING on profiles table
       await _client
           .from(SupabaseConstants.profilesTable)
-          .update({'verification_status': aiResult.status.toDbValue()})
+          .update({
+            'verification_status': VerificationStatusType.pending.toDbValue(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
           .eq('id', uid);
+
+      final verification = res != null
+          ? IdentityVerification.fromMap(Map<String, dynamic>.from(res), registeredFullName: userFullName)
+          : IdentityVerification(
+              id: 'verif-$uid',
+              userId: uid,
+              userFullName: userFullName,
+              idCardImageUrl: idCardUrl,
+              selfieImageUrl: selfieUrl,
+              status: VerificationStatusType.pending,
+              rejectionReason: null,
+              createdAt: DateTime.now(),
+            );
+
+      return VerificationSubmissionResult(
+        success: true,
+        message: promptMessage,
+        verification: verification,
+      );
     } catch (e) {
-      developer.log('Fallback submitVerification failed: $e');
-      throw 'تعذر إرسال نتيجة التوثيق، يرجى المحاولة لاحقاً';
+      developer.log('Fallback submitVerificationRequest failed: $e');
+      throw 'تعذر إرسال طلب التوثيق، يرجى التحقق من الاتصال وإعادة المحاولة';
     }
   }
 
@@ -235,6 +182,39 @@ class VerificationRepository {
     final uid = _userId;
     if (uid == null) return null;
 
+    String? userFullName;
+    try {
+      final profileData = await _client
+          .from(SupabaseConstants.profilesTable)
+          .select('full_name')
+          .eq('id', uid)
+          .maybeSingle();
+      if (profileData != null) {
+        userFullName = profileData['full_name'] as String?;
+      }
+    } catch (_) {}
+
+    // Direct query on identity_verifications
+    try {
+      final data = await _client
+          .from(SupabaseConstants.identityVerificationsTable)
+          .select()
+          .eq('user_id', uid)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (data != null) {
+        return IdentityVerification.fromMap(
+          Map<String, dynamic>.from(data),
+          registeredFullName: userFullName,
+        );
+      }
+    } catch (e) {
+      developer.log('fetchUserVerificationStatus direct query error: $e');
+    }
+
+    // Try RPC get_my_verification_status
     try {
       final rpcResult = await _client.rpc('get_my_verification_status');
       if (rpcResult != null) {
@@ -247,13 +227,9 @@ class VerificationRepository {
         return IdentityVerification(
           id: map['id'] as String? ?? '',
           userId: uid,
+          userFullName: userFullName,
           idCardImageUrl: '',
           selfieImageUrl: '',
-          extractedName: map['extracted_name'] as String?,
-          faceMatchScore: map['face_match_score'] != null
-              ? (map['face_match_score'] as num).toDouble()
-              : null,
-          livenessPassed: map['liveness_passed'] as bool? ?? false,
           status: status,
           rejectionReason: map['rejection_reason'] as String?,
           createdAt: map['created_at'] != null
@@ -262,28 +238,70 @@ class VerificationRepository {
         );
       }
     } catch (e, stack) {
-      developer.log('RPC get_my_verification_status error, using direct query: $e',
+      developer.log('RPC get_my_verification_status error: $e',
           error: e, stackTrace: stack);
     }
 
-    // Direct-query fallback
-    try {
-      final data = await _client
-          .from(SupabaseConstants.identityVerificationsTable)
-          .select()
-          .eq('user_id', uid)
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+    return null;
+  }
 
-      if (data != null) {
-        return IdentityVerification.fromMap(Map<String, dynamic>.from(data));
+  // ---------------------------------------------------------------------------
+  // Admin action helper: approve or reject verification request
+  // ---------------------------------------------------------------------------
+  Future<bool> reviewVerificationAsAdmin({
+    required String verificationId,
+    required bool approve,
+    String? rejectionReason,
+  }) async {
+    final action = approve ? 'APPROVE' : 'REJECT';
+    try {
+      final rpcRes = await _client.rpc('admin_review_verification', params: {
+        'p_verification_id': verificationId,
+        'p_action': action,
+        'p_rejection_reason': rejectionReason,
+      });
+      if (rpcRes is Map && rpcRes['success'] == true) {
+        return true;
       }
     } catch (e) {
-      developer.log('fetchUserVerificationStatus direct query error: $e');
+      developer.log('RPC admin_review_verification failed, using direct update: $e');
     }
 
-    return null;
+    // Fallback: direct updates
+    try {
+      final vRecord = await _client
+          .from(SupabaseConstants.identityVerificationsTable)
+          .select('user_id')
+          .eq('id', verificationId)
+          .maybeSingle();
+
+      final newStatus = approve
+          ? VerificationStatusType.verified.toDbValue()
+          : VerificationStatusType.failed.toDbValue();
+
+      await _client
+          .from(SupabaseConstants.identityVerificationsTable)
+          .update({
+            'status': newStatus,
+            'rejection_reason': approve ? null : rejectionReason,
+            'reviewed_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', verificationId);
+
+      if (vRecord != null && vRecord['user_id'] != null) {
+        await _client
+            .from(SupabaseConstants.profilesTable)
+            .update({
+              'verification_status': newStatus,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', vRecord['user_id'] as String);
+      }
+      return true;
+    } catch (e) {
+      developer.log('reviewVerificationAsAdmin fallback error: $e');
+      return false;
+    }
   }
 }
 

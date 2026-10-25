@@ -42,20 +42,11 @@
         </div>
         <div id="login-error" class="login-error" style="display:none;"></div>
         <button type="submit" id="login-btn" class="btn btn-primary btn-full">
-          <span class="btn-text">تسجيل الدخول</span>
+          <span class="btn-text">تسجيل الدخول (بيانات حية)</span>
           <span class="btn-loader" style="display:none;"></span>
         </button>
 
-        <div class="login-divider">
-          <span>أو</span>
-        </div>
-
-        <button type="button" id="demo-login-btn" class="btn btn-demo btn-full">
-          <span class="material-icons-round">play_circle_outline</span>
-          <span>الدخول السريع (وضع المعاينة التجريبية)</span>
-        </button>
-
-        <div class="login-footer-actions">
+        <div class="login-footer-actions" style="margin-top: 16px;">
           <button type="button" id="open-config-btn" class="text-btn">
             <span class="material-icons-round">settings</span>
             <span>إعدادات الاتصال بـ Supabase</span>
@@ -130,9 +121,9 @@
         </div>
         <div class="topbar-left">
           <div id="mode-badge-container">
-            <span id="mode-badge" class="mode-badge mode-badge-demo" title="انقر لتعديل إعدادات الاتصال">
-              <span class="mode-dot mode-dot-demo"></span>
-              <span id="mode-badge-text">وضع المعاينة التجريبية</span>
+            <span id="mode-badge" class="mode-badge mode-badge-live" title="انقر لتعديل إعدادات الاتصال">
+              <span class="mode-dot mode-dot-live"></span>
+              <span id="mode-badge-text">قاعدة بيانات حية (Live)</span>
             </span>
           </div>
           <span class="topbar-time" id="topbar-time"></span>
@@ -392,11 +383,10 @@
           <div class="page-actions">
             <div class="filter-group">
               <select id="verifications-status-filter" class="filter-select">
-                <option value="PENDING">معلقة</option>
-                <option value="MANUAL_REVIEW">مراجعة يدوية</option>
-                <option value="ALL">الكل</option>
-                <option value="VERIFIED">موثقة</option>
-                <option value="FAILED">مرفوضة</option>
+                <option value="PENDING">في انتظار المراجعة (Pending)</option>
+                <option value="ALL">جميع الطلبات (All)</option>
+                <option value="APPROVED">تمت الموافقة (Approved)</option>
+                <option value="REJECTED">تم الرفض (Rejected)</option>
               </select>
             </div>
           </div>
@@ -471,7 +461,7 @@
       </div>
       <div class="modal-body">
         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">
-          يمكنك إدخال بيانات مشروع Supabase الخاص بك للاتصال المباشر بقاعدة البيانات، أو التبديل إلى وضع المعاينة التجريبية (Demo Mode).
+          إعدادات الربط المباشر مع مشروع Supabase. يتم استخدام هذه البيانات للاتصال الحي بقاعدة البيانات.
         </p>
         <form id="config-form">
           <div class="form-group" style="margin-bottom:14px;">
@@ -479,14 +469,8 @@
             <input type="url" id="cfg-supabase-url" class="filter-select" style="width:100%; direction:ltr;" placeholder="https://xyzcompany.supabase.co">
           </div>
           <div class="form-group" style="margin-bottom:14px;">
-            <label for="cfg-supabase-key">Supabase Anon / Service Key</label>
-            <input type="password" id="cfg-supabase-key" class="filter-select" style="width:100%; direction:ltr;" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
-          </div>
-          <div class="form-group" style="margin-bottom:20px;">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-              <input type="checkbox" id="cfg-demo-toggle" style="width:16px; height:16px;">
-              <span style="font-weight:700;">تفعيل وضع المعاينة التجريبية (بيانات تفاعلية كاملة)</span>
-            </label>
+            <label for="cfg-supabase-key">Supabase Anon Key</label>
+            <input type="password" id="cfg-supabase-key" class="filter-select" style="width:100%; direction:ltr;" placeholder="sb_publishable_... أو eyJ...">
           </div>
           <div class="modal-footer" style="padding:0; margin-top:20px;">
             <button type="button" id="config-reset-btn" class="btn btn-outline">استعادة الافتراضي</button>
