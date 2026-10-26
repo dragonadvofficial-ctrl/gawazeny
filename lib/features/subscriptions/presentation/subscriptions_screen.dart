@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/localization/app_translations.dart';
 import '../../../core/network/supabase_client.dart';
 import '../../../core/theme/text_styles.dart';
+import '../../profile/presentation/widgets/support_sheet.dart';
+import '../data/payment_settings_repository.dart';
 import '../domain/subscription_tier.dart';
 import 'subscriptions_controller.dart';
 
@@ -641,10 +644,123 @@ class _VoucherActivationBottomSheetState
     );
   }
 
+  Future<void> _launchVodafoneCash(String phone, double amount) async {
+    _copyToClipboard(phone, context.isArabic ? 'رقم فودافون كاش' : 'Vodafone Cash Number');
+    final amountInt = amount.toInt();
+    final ussdUri = Uri.parse('tel:*9*7*$phone*$amountInt%23');
+
+    bool launched = false;
+    try {
+      if (await canLaunchUrl(ussdUri)) {
+        await launchUrl(ussdUri);
+        launched = true;
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      _showPaymentNoticeDialog(
+        title: context.isArabic ? 'الدفع عبر فودافون كاش' : 'Vodafone Cash Payment',
+        message: launched
+            ? (context.isArabic
+                ? 'تم فتح شاشة الاتصال بكود التحويل المباشر (*9*7*رقم*المبلغ#).\n\nكما تم نسخ رقم المحفظة ($phone) والمبلغ ($amountInt ج.م) للحافظة.\nبعد إتمام التحويل، أدخل كود القسيمة أدناه أو تواصل مع الدعم الفني لتأكيد التفعيل.'
+                : 'Direct transfer USSD dialed. Number ($phone) and amount ($amountInt EGP) copied to clipboard. Enter voucher or contact support to confirm.')
+            : (context.isArabic
+                ? 'تم نسخ رقم فودافون كاش ($phone) والمبلغ ($amountInt ج.م) للحافظة.\nيمكنك فتح محفظتك أو طلب *9# لإتمام التحويل، ثم تأكيد الدفع عبر القسيمة أو الدعم.'
+                : 'Vodafone Cash number ($phone) and amount ($amountInt EGP) copied to clipboard. Dial *9# or use wallet app, then confirm activation.'),
+      );
+    }
+  }
+
+  Future<void> _launchInstaPay(String account, double amount) async {
+    _copyToClipboard(account, context.isArabic ? 'حساب إنستاباي' : 'InstaPay Account');
+    final amountInt = amount.toInt();
+    final instapaySchemeUri = Uri.parse('instapay://');
+    final instapayWebUri = Uri.parse('https://ipn.eg/');
+
+    bool launched = false;
+    try {
+      if (await canLaunchUrl(instapaySchemeUri)) {
+        await launchUrl(instapaySchemeUri, mode: LaunchMode.externalApplication);
+        launched = true;
+      } else if (await canLaunchUrl(instapayWebUri)) {
+        await launchUrl(instapayWebUri, mode: LaunchMode.externalApplication);
+        launched = true;
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      _showPaymentNoticeDialog(
+        title: context.isArabic ? 'الدفع عبر إنستا باي (InstaPay)' : 'InstaPay Payment',
+        message: launched
+            ? (context.isArabic
+                ? 'تم فتح تطبيق إنستاباي.\nتم نسخ عنوان الحساب ($account) والمبلغ ($amountInt ج.م) إلى الحافظة لسهولة إدخالهما في شاشة التحويل.\nبعد التحويل، أدخل كود القسيمة لتأكيد تفعيل الاشتراك.'
+                : 'InstaPay opened. Account ($account) and amount ($amountInt EGP) copied to clipboard. Enter voucher after payment to activate.')
+            : (context.isArabic
+                ? 'تطبيق إنستاباي غير مثبت على جهازك أو تعذر فتحه مباشرة.\nتم نسخ حساب إنستاباي ($account) والمبلغ ($amountInt ج.م) إلى الحافظة.\nيمكنك التحويل عبر تطبيق بنكك أو تطبيق إنستاباي، ثم إدخال كود التفعيل.'
+                : 'InstaPay app not installed or unavailable.\nAccount ($account) and amount ($amountInt EGP) copied to clipboard.'),
+      );
+    }
+  }
+
+  Future<void> _launchWhatsApp(String phone, String planName, int amount) async {
+    final text = context.isArabic
+        ? 'مرحباً، أود تفعيل باقة ($planName) بقيمة $amount ج.م عبر منصة جوزيني يا ماما. مرفق إشعار التحويل.'
+        : 'Hello, I want to activate the ($planName) plan for $amount EGP. Here is my payment receipt.';
+    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+    final fullPhone = cleanPhone.startsWith('0') ? '2$cleanPhone' : cleanPhone;
+    final uri = Uri.parse('https://wa.me/$fullPhone?text=${Uri.encodeComponent(text)}');
+
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+    _copyToClipboard(phone, context.isArabic ? 'رقم واتساب الدعم' : 'WhatsApp Support');
+  }
+
+  void _showPaymentNoticeDialog({required String title, required String message}) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
+        title: Row(
+          children: [
+            Icon(Icons.info_outline_rounded, color: AppColors.secondaryPink, size: 24.sp),
+            SizedBox(width: 8.w),
+            Expanded(
+              child: Text(
+                title,
+                style: AppTextStyles.titleMedium.copyWith(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          message,
+          style: AppTextStyles.bodyMedium.copyWith(height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              context.isArabic ? 'حسناً، فهمت' : 'Understood',
+              style: AppTextStyles.labelLarge.copyWith(color: AppColors.secondaryPink, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final subState = ref.watch(subscriptionsControllerProvider);
     final controller = ref.read(subscriptionsControllerProvider.notifier);
+    final paymentSettingsAsync = ref.watch(paymentSettingsProvider);
+    final paymentSettings = paymentSettingsAsync.value ?? const PaymentSettings();
 
     return Container(
       decoration: BoxDecoration(
@@ -752,80 +868,261 @@ class _VoucherActivationBottomSheetState
             ),
             SizedBox(height: 16.h),
 
-            // Offline Payment Instructions
-            Container(
-              padding: EdgeInsets.all(14.r),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceWhite,
-                borderRadius: BorderRadius.circular(16.r),
-                border: Border.all(color: AppColors.borderSubtle),
+            // Payment Instructions Title
+            Text(
+              context.isArabic ? 'اختر وسيلة الدفع للتحويل:' : 'Choose Payment Method:',
+              style: AppTextStyles.labelLarge.copyWith(
+                fontWeight: FontWeight.w700,
+                color: AppColors.primaryNavy,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.account_balance_wallet_outlined,
-                        color: AppColors.secondaryPink,
-                        size: 20.sp,
+            ),
+            SizedBox(height: 10.h),
+
+            // 1. Vodafone Cash Payment Card
+            if (paymentSettings.vodafoneCashEnabled)
+              Container(
+                margin: EdgeInsets.only(bottom: 12.h),
+                padding: EdgeInsets.all(14.r),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceWhite,
+                  borderRadius: BorderRadius.circular(16.r),
+                  border: Border.all(color: const Color(0xFFE60000).withValues(alpha: 0.3)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFE60000).withValues(alpha: 0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(6.r),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE60000).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8.r),
+                          ),
+                          child: Icon(
+                            Icons.phone_android_rounded,
+                            color: const Color(0xFFE60000),
+                            size: 18.sp,
+                          ),
+                        ),
+                        SizedBox(width: 8.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                context.isArabic ? 'فودافون كاش (Vodafone Cash)' : 'Vodafone Cash',
+                                style: AppTextStyles.titleSmall.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primaryNavy,
+                                ),
+                              ),
+                              Text(
+                                '${context.isArabic ? "المستلم:" : "Name:"} ${paymentSettings.vodafoneCashName}',
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11.sp,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 10.h),
+
+                    // Number and Copy row
+                    _buildPaymentTargetRow(
+                      label: context.isArabic ? 'رقم المحفظة:' : 'Wallet Number:',
+                      value: paymentSettings.vodafoneCashNumber,
+                      onCopy: () => _copyToClipboard(
+                        paymentSettings.vodafoneCashNumber,
+                        context.isArabic ? 'رقم فودافون كاش' : 'Vodafone Cash Number',
                       ),
-                      SizedBox(width: 8.w),
-                      Text(
-                        context.tr('paymentStepsTitle'),
-                        style: AppTextStyles.labelLarge.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primaryNavy,
+                    ),
+                    SizedBox(height: 10.h),
+
+                    // Deep Link Direct Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44.h,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFE60000),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12.r),
+                          ),
+                          elevation: 0,
+                        ),
+                        onPressed: () => _launchVodafoneCash(
+                          paymentSettings.vodafoneCashNumber,
+                          widget.tier.priceEgp.toDouble(),
+                        ),
+                        icon: const Icon(Icons.touch_app_rounded, size: 18),
+                        label: Text(
+                          context.isArabic
+                              ? 'الدفع عبر فودافون كاش (${widget.tier.priceEgp} ج.م)'
+                              : 'Pay via Vodafone Cash (${widget.tier.priceEgp} EGP)',
+                          style: AppTextStyles.labelMedium.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                  SizedBox(height: 10.h),
-                  Text(
-                    context.isArabic
-                        ? '1. قم بتحويل مبلغ ${widget.tier.priceEgp} ج.م عبر إحدى وسائل الدفع الآتية:'
-                        : '1. Transfer ${widget.tier.priceEgp} EGP via one of the following methods:',
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w600,
                     ),
-                  ),
-                  SizedBox(height: 8.h),
+                  ],
+                ),
+              ),
 
-                  // InstaPay row
-                  _buildPaymentTargetRow(
-                    label: context.isArabic ? 'إنستاباي (InstaPay):' : 'InstaPay:',
-                    value: 'gawezeny@instapay',
-                    onCopy: () => _copyToClipboard(
-                      'gawezeny@instapay',
-                      context.isArabic ? 'حساب إنستاباي' : 'InstaPay Account',
+            // 2. InstaPay Payment Card
+            if (paymentSettings.instapayEnabled)
+              Container(
+                margin: EdgeInsets.only(bottom: 12.h),
+                padding: EdgeInsets.all(14.r),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceWhite,
+                  borderRadius: BorderRadius.circular(16.r),
+                  border: Border.all(color: const Color(0xFF5A189A).withValues(alpha: 0.3)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF5A189A).withValues(alpha: 0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
-                  ),
-                  SizedBox(height: 6.h),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(6.r),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5A189A).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8.r),
+                          ),
+                          child: Icon(
+                            Icons.send_to_mobile_rounded,
+                            color: const Color(0xFF5A189A),
+                            size: 18.sp,
+                          ),
+                        ),
+                        SizedBox(width: 8.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                context.isArabic ? 'إنستا باي (InstaPay IPN)' : 'InstaPay (IPN)',
+                                style: AppTextStyles.titleSmall.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primaryNavy,
+                                ),
+                              ),
+                              Text(
+                                '${context.isArabic ? "المستلم:" : "Name:"} ${paymentSettings.instapayName}',
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11.sp,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 10.h),
 
-                  // Vodafone Cash row
-                  _buildPaymentTargetRow(
-                    label: context.isArabic ? 'فودافون كاش / محفظة:' : 'Vodafone Cash / Wallet:',
-                    value: '01099887766',
-                    onCopy: () => _copyToClipboard(
-                      '01099887766',
-                      context.isArabic ? 'رقم المحفظة' : 'Wallet Number',
+                    // IPA and Copy row
+                    _buildPaymentTargetRow(
+                      label: context.isArabic ? 'عنوان الحساب (IPA):' : 'Account (IPA):',
+                      value: paymentSettings.instapayAccount,
+                      onCopy: () => _copyToClipboard(
+                        paymentSettings.instapayAccount,
+                        context.isArabic ? 'حساب إنستاباي' : 'InstaPay Account',
+                      ),
+                    ),
+                    SizedBox(height: 10.h),
+
+                    // Deep Link Direct Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44.h,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF5A189A),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12.r),
+                          ),
+                          elevation: 0,
+                        ),
+                        onPressed: () => _launchInstaPay(
+                          paymentSettings.instapayAccount,
+                          widget.tier.priceEgp.toDouble(),
+                        ),
+                        icon: const Icon(Icons.flash_on_rounded, size: 18),
+                        label: Text(
+                          context.isArabic
+                              ? 'الدفع عبر إنستا باي (${widget.tier.priceEgp} ج.م)'
+                              : 'Pay via InstaPay (${widget.tier.priceEgp} EGP)',
+                          style: AppTextStyles.labelMedium.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // Support WhatsApp confirmation
+            Container(
+              margin: EdgeInsets.only(bottom: 16.h),
+              padding: EdgeInsets.all(12.r),
+              decoration: BoxDecoration(
+                color: AppColors.offWhite,
+                borderRadius: BorderRadius.circular(12.r),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.support_agent_rounded, color: AppColors.primaryNavy, size: 20.sp),
+                  SizedBox(width: 8.w),
+                  Expanded(
+                    child: Text(
+                      context.isArabic
+                          ? 'لإرسال صورة التحويل مباشرة عبر واتساب:'
+                          : 'Send payment receipt via WhatsApp:',
+                      style: AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600),
                     ),
                   ),
-                  SizedBox(height: 10.h),
-                  Text(
-                    context.tr('paymentStep2'),
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: AppColors.textPrimary,
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                     ),
-                  ),
-                  SizedBox(height: 6.h),
-                  _buildPaymentTargetRow(
-                    label: context.isArabic ? 'واتساب خدمة العملاء:' : 'Support WhatsApp:',
-                    value: '01099887766',
-                    onCopy: () => _copyToClipboard(
-                      '01099887766',
-                      context.isArabic ? 'رقم الواتساب' : 'WhatsApp Number',
+                    onPressed: () => _launchWhatsApp(
+                      paymentSettings.supportWhatsapp,
+                      widget.tier.localizedTitle(context.isArabic),
+                      widget.tier.priceEgp,
+                    ),
+                    icon: Icon(Icons.chat_bubble_outline_rounded, size: 16.sp, color: AppColors.successGreen),
+                    label: Text(
+                      context.isArabic ? 'واتساب' : 'WhatsApp',
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: AppColors.successGreen,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ],
@@ -980,6 +1277,47 @@ class _VoucherActivationBottomSheetState
                           fontSize: 16.sp,
                         ),
                       ),
+              ),
+            ),
+            SizedBox(height: 10.h),
+
+            // Send Transfer Confirmation Notice to Admin Support
+            SizedBox(
+              width: double.infinity,
+              height: 46.h,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primaryNavy,
+                  side: const BorderSide(color: AppColors.borderSubtle),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14.r),
+                  ),
+                ),
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => SupportSheet(
+                      initialSubject: context.isArabic
+                          ? 'تأكيد تحويل اشتراك: ${widget.tier.localizedTitle(true)}'
+                          : 'Payment Confirmation: ${widget.tier.localizedTitle(false)}',
+                      initialContent: context.isArabic
+                          ? 'مرحباً، قمت بتحويل مبلغ ${widget.tier.priceEgp} ج.م عبر (فودافون كاش / إنستاباي) لتفعيل باقة "${widget.tier.localizedTitle(true)}". رقم هاتفي أو حسابي هو: '
+                          : 'Hello, I have transferred ${widget.tier.priceEgp} EGP to activate "${widget.tier.localizedTitle(false)}". My account/phone is: ',
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.support_agent_rounded, size: 20),
+                label: Text(
+                  context.isArabic
+                      ? 'إرسال إشعار تحويل للدعم الفني'
+                      : 'Send Payment Notice to Support',
+                  style: AppTextStyles.labelMedium.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primaryNavy,
+                  ),
+                ),
               ),
             ),
           ],

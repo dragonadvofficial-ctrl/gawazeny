@@ -25,14 +25,26 @@ class WelcomeScreen extends StatelessWidget {
               Center(
                 child: Container(
                   constraints: BoxConstraints(
-                    maxWidth: 200.w,
-                    maxHeight: 180.h,
+                    maxWidth: 190.w,
+                    maxHeight: 170.h,
+                  ),
+                  padding: EdgeInsets.all(12.r),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceWhite,
+                    borderRadius: BorderRadius.circular(24.r),
+                    border: Border.all(color: AppColors.borderSubtle, width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primaryNavy.withValues(alpha: 0.06),
+                        blurRadius: 18,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: Image.asset(
                     'assets/images/logo.png',
-                    width: 170.w,
-                    height: 150.h,
                     fit: BoxFit.contain,
+                    alignment: Alignment.center,
                   ),
                 ),
               ),

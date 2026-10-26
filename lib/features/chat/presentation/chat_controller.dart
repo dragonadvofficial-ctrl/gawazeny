@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/supabase_client.dart';
 import '../../../core/preview/preview_config.dart';
 import '../../../core/preview/preview_mock_data.dart';
+import '../data/chat_limit_repository.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_message.dart';
 
@@ -235,12 +236,24 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
     });
   }
 
-  /// Sends a message with optimistic UI insertion.
+  /// Sends a message with optimistic UI insertion and chat limit verification.
   Future<void> sendMessage(String content) async {
     final convId = state.conversationId;
     final uid = _ref.read(currentUserProvider)?.id ??
         (kPreviewMode ? PreviewMockData.currentUserId : null);
     if (convId == null || uid == null || content.trim().isEmpty) return;
+
+    // Check message rate limit before sending
+    if (!kPreviewMode) {
+      final limitRepo = _ref.read(chatLimitRepositoryProvider);
+      final limitStatus = await limitRepo.checkMessageLimit();
+      if (!limitStatus.allowed) {
+        state = state.copyWith(
+          errorMessage: 'لقد استنفدت رصيد رسائل الشات (${limitStatus.sentMonth}/${limitStatus.effectiveLimit ?? 0}). يرجى ترقية اشتراكك للاستمرار في المراسلة.',
+        );
+        return;
+      }
+    }
 
     // Optimistic insert
     final pending = ChatMessage.pending(
@@ -287,6 +300,15 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
       state = state.copyWith(messages: updated, isSending: false);
     } catch (e) {
       developer.log('sendMessage error: $e');
+      if (e.toString().contains('CHAT_LIMIT_EXCEEDED')) {
+        final updated = state.messages.where((m) => m.id != pending.id).toList();
+        state = state.copyWith(
+          messages: updated,
+          isSending: false,
+          errorMessage: 'تم استنفاد الحد الأقصى للرسائل المسموح بها لخطة اشتراكك الحالية. يرجى الترقية.',
+        );
+        return;
+      }
       // Mark pending as failed
       final updated = state.messages.map((m) {
         if (m.id == pending.id) {

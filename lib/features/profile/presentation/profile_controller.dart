@@ -88,27 +88,28 @@ class ProfileController extends StateNotifier<ProfileState> {
     try {
       var loadedProfile = await _repository.getProfile(userId);
       loadedProfile ??= UserProfile(
-          id: userId,
-          fullName: 'أحمد محمود السعدني',
-          gender: GenderType.male,
-          birthDate: DateTime(1994, 5, 12),
-          age: 30,
-          nationality: 'مصري',
-          residenceCity: 'القاهرة',
-          maritalStatus: MaritalStatusType.single,
-          jobTitle: 'طبيب بشري - جراحة عامة',
-          educationLevel: 'ماجستير جراحة',
-          heightCm: 180,
-          weightKg: 78,
-          smoker: false,
-          prays: 'محافظ على الصلاة في المسجد',
-          wantsChildren: true,
-          bio: 'طبيب أبحث عن زوجة صالحة متدينة ترعى بيت الزوجية وتبني أسرة قائمة على التفاهم والمودة والرحمة.',
-          verificationStatus: VerificationStatusType.verified,
-          subscriptionStatus: SubscriptionStatusType.active,
-          createdAt: DateTime.now().subtract(const Duration(days: 45)),
-          updatedAt: DateTime.now(),
-        );
+        id: userId,
+        fullName: 'أحمد محمود السعدني',
+        gender: GenderType.male,
+        birthDate: DateTime(1994, 5, 12),
+        age: 30,
+        nationality: 'مصري',
+        residenceCity: 'القاهرة',
+        maritalStatus: MaritalStatusType.single,
+        jobTitle: 'طبيب بشري - جراحة عامة',
+        educationLevel: 'ماجستير جراحة',
+        heightCm: 180,
+        weightKg: 78,
+        smoker: false,
+        prays: 'محافظ على الصلاة في المسجد',
+        wantsChildren: true,
+        bio:
+            'طبيب أبحث عن زوجة صالحة متدينة ترعى بيت الزوجية وتبني أسرة قائمة على التفاهم والمودة والرحمة.',
+        verificationStatus: VerificationStatusType.verified,
+        subscriptionStatus: SubscriptionStatusType.active,
+        createdAt: DateTime.now().subtract(const Duration(days: 45)),
+        updatedAt: DateTime.now(),
+      );
 
       // Check for locally cached photo if database photo is empty
       if (loadedProfile.photoUrl == null || loadedProfile.photoUrl!.isEmpty) {
@@ -130,7 +131,11 @@ class ProfileController extends StateNotifier<ProfileState> {
 
   /// Updates personal details and bio.
   Future<bool> updateProfile(UserProfile updated) async {
-    state = state.copyWith(isSaving: true, errorMessage: null, successMessage: null);
+    state = state.copyWith(
+      isSaving: true,
+      errorMessage: null,
+      successMessage: null,
+    );
 
     try {
       await _repository.updateProfile(updated);
@@ -153,18 +158,12 @@ class ProfileController extends StateNotifier<ProfileState> {
 
   /// Sets blocked users list for preview mode testing.
   void setBlockedUsersForPreview(List<BlockedUserModel> users) {
-    state = state.copyWith(
-      blockedUsers: users,
-      isLoadingBlocked: false,
-    );
+    state = state.copyWith(blockedUsers: users, isLoadingBlocked: false);
   }
 
   /// Toggles empty state for blocked users in preview mode.
   void setEmptyBlockedUsersForPreview() {
-    state = state.copyWith(
-      blockedUsers: const [],
-      isLoadingBlocked: false,
-    );
+    state = state.copyWith(blockedUsers: const [], isLoadingBlocked: false);
   }
 
   /// Loads list of blocked profiles for the user.
@@ -190,8 +189,9 @@ class ProfileController extends StateNotifier<ProfileState> {
   /// Unblocks a specific user and removes from blocked list.
   Future<bool> unblockUser(String targetUserId) async {
     if (kPreviewMode) {
-      final updatedList =
-          state.blockedUsers.where((u) => u.blockedUserId != targetUserId).toList();
+      final updatedList = state.blockedUsers
+          .where((u) => u.blockedUserId != targetUserId)
+          .toList();
       state = state.copyWith(
         blockedUsers: updatedList,
         successMessage: 'تم إلغاء الحظر بنجاح',
@@ -202,8 +202,9 @@ class ProfileController extends StateNotifier<ProfileState> {
     try {
       final success = await _repository.unblockUser(targetUserId);
       if (success) {
-        final updatedList =
-            state.blockedUsers.where((u) => u.blockedUserId != targetUserId).toList();
+        final updatedList = state.blockedUsers
+            .where((u) => u.blockedUserId != targetUserId)
+            .toList();
         state = state.copyWith(
           blockedUsers: updatedList,
           successMessage: 'تم إلغاء الحظر بنجاح',
@@ -248,14 +249,19 @@ class ProfileController extends StateNotifier<ProfileState> {
             fileExtension: fileExtension,
           );
         } catch (uploadErr) {
-          developer.log('Remote uploadProfilePhoto error, fallback to data URI: $uploadErr');
+          developer.log(
+            'Remote uploadProfilePhoto error, fallback to data URI: $uploadErr',
+          );
         }
       }
 
       // If remote upload didn't return a URL, use base64 data URI
       if (photoUrl.isEmpty) {
-        final sanitizedExtension = fileExtension.replaceAll('.', '').toLowerCase();
-        photoUrl = 'data:image/$sanitizedExtension;base64,${base64Encode(bytes)}';
+        final sanitizedExtension = fileExtension
+            .replaceAll('.', '')
+            .toLowerCase();
+        photoUrl =
+            'data:image/$sanitizedExtension;base64,${base64Encode(bytes)}';
       }
 
       // Cache locally for offline and instant startup
@@ -264,7 +270,8 @@ class ProfileController extends StateNotifier<ProfileState> {
         await prefs.setString('user_profile_photo_$userId', photoUrl);
       } catch (_) {}
 
-      final updatedProfile = state.profile?.copyWith(photoUrl: photoUrl) ??
+      final updatedProfile =
+          state.profile?.copyWith(photoUrl: photoUrl) ??
           UserProfile(
             id: userId,
             fullName: 'مستخدم',
@@ -369,7 +376,9 @@ class ProfileController extends StateNotifier<ProfileState> {
   Future<void> setLanguage(String lang) async {
     state = state.copyWith(
       currentLanguage: lang,
-      successMessage: lang == 'ar' ? 'تم ضبط اللغة إلى العربية' : 'Language set to English',
+      successMessage: lang == 'ar'
+          ? 'تم ضبط اللغة إلى العربية'
+          : 'Language set to English',
     );
     await _ref.read(localeProvider.notifier).setLocale(lang);
   }
@@ -382,7 +391,10 @@ class ProfileController extends StateNotifier<ProfileState> {
       state = const ProfileState();
       return result;
     } catch (e) {
-      state = state.copyWith(isDeleting: false, errorMessage: 'تعذر حذف الحساب: $e');
+      state = state.copyWith(
+        isDeleting: false,
+        errorMessage: 'تعذر حذف الحساب: $e',
+      );
       return false;
     }
   }
@@ -405,9 +417,9 @@ class ProfileController extends StateNotifier<ProfileState> {
 /// Riverpod provider for [ProfileController].
 final profileControllerProvider =
     StateNotifierProvider<ProfileController, ProfileState>((ref) {
-  final repository = ref.watch(profileRepositoryProvider);
-  return ProfileController(repository, ref);
-});
+      final repository = ref.watch(profileRepositoryProvider);
+      return ProfileController(repository, ref);
+    });
 
 /// Convenience provider for current user profile.
 final currentUserProfileProvider = Provider<UserProfile?>((ref) {

@@ -19,6 +19,7 @@ import 'screens/blocked_users_screen.dart';
 import 'screens/edit_profile_screen.dart';
 import 'screens/privacy_security_screen.dart';
 import 'widgets/profile_photo_crop_dialog.dart';
+import 'widgets/support_sheet.dart';
 
 /// Production-ready User Profile and Account Management Screen.
 /// Executive layout matching brand colors (Navy, Pink, OffWhite) with
@@ -507,6 +508,20 @@ class ProfileScreen extends ConsumerWidget {
                         MaterialPageRoute(
                           builder: (_) => const PrivacySecurityScreen(),
                         ),
+                      );
+                    },
+                  ),
+                  _MenuItem(
+                    icon: Icons.support_agent_rounded,
+                    iconColor: AppColors.secondaryPink,
+                    title: context.isArabic ? 'الدعم والمساعدة' : 'Help & Support',
+                    subtitle: context.isArabic ? 'تواصل مع فريق إدارة المنصة' : 'Contact platform administration',
+                    onTap: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => const SupportSheet(),
                       );
                     },
                   ),

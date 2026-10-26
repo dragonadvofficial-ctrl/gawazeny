@@ -15,6 +15,7 @@ import 'core/theme/app_theme.dart';
 import 'features/chat/presentation/chat_inbox_screen.dart';
 import 'features/likes_matches/presentation/matches_screen.dart';
 import 'features/matching/presentation/matching_screen.dart';
+import 'features/onboarding/presentation/intro_onboarding_controller.dart';
 import 'features/profile/presentation/profile_screen.dart';
 
 Future<void> main() async {
@@ -51,21 +52,27 @@ Future<void> main() async {
 
   // Pre-fetch persistent language selection to eliminate flicker and guarantee correct startup
   Locale initialLocale = const Locale('ar', 'EG');
+  bool hasCompletedIntro = false;
   try {
     final prefs = await SharedPreferences.getInstance();
     final savedCode = prefs.getString('app_selected_language');
     if (savedCode == 'en') {
       initialLocale = const Locale('en', 'US');
     }
+    hasCompletedIntro =
+        prefs.getBool(IntroOnboardingNotifier.keyCompleted) ?? false;
   } catch (e) {
-    developer.log('Initial language pre-load notice: $e');
+    developer.log('Initial app config pre-load notice: $e');
   }
 
-  // Wrap MyApp in ProviderScope with initial locale initialized
+  // Wrap MyApp in ProviderScope with initial locale and onboarding state initialized
   runApp(
     ProviderScope(
       overrides: [
         localeProvider.overrideWith((ref) => LocaleNotifier(initialLocale)),
+        introOnboardingProvider.overrideWith(
+          (ref) => IntroOnboardingNotifier(hasCompletedIntro),
+        ),
       ],
       child: const MyApp(),
     ),

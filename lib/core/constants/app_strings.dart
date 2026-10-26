@@ -21,6 +21,8 @@ abstract final class AppStrings {
   static const String delete = 'حذف';
   static const String next = 'التالي';
   static const String back = 'السابق';
+  static const String skip = 'تخطي';
+  static const String startYourJourneyNow = 'ابدأ رحلتك الآن';
   static const String retry = 'إعادة المحاولة';
   static const String submit = 'إرسال';
   static const String block = 'حظر';

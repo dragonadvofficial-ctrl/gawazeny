@@ -225,14 +225,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     Center(
                       child: Container(
                         constraints: BoxConstraints(
-                          maxWidth: 290.w,
-                          maxHeight: 250.h,
+                          maxWidth: 240.w,
+                          maxHeight: 200.h,
+                        ),
+                        padding: EdgeInsets.all(12.r),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceWhite,
+                          borderRadius: BorderRadius.circular(24.r),
+                          border: Border.all(color: AppColors.borderSubtle, width: 1.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primaryNavy.withValues(alpha: 0.06),
+                              blurRadius: 18,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                         ),
                         child: Image.asset(
                           'assets/images/logo.png',
-                          width: 280.w,
-                          height: 240.h,
                           fit: BoxFit.contain,
+                          alignment: Alignment.center,
                         ),
                       ),
                     ),

@@ -6,6 +6,8 @@ import '../constants/app_strings.dart';
 import '../theme/text_styles.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/onboarding/data/onboarding_repository.dart';
+import '../../features/onboarding/presentation/intro_onboarding_controller.dart';
+import '../../features/onboarding/presentation/intro_onboarding_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../main.dart';
 import 'supabase_client.dart';
@@ -23,38 +25,67 @@ class AuthGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final hasCompletedIntro = ref.watch(introOnboardingProvider);
 
-    final user = ref.watch(currentUserProvider);
+    Widget activeScreen;
 
-    // 1. Unauthenticated -> Login & Register Screen
-    if (user == null) {
-      return const LoginScreen();
+    // 0. First-launch 6-screen Onboarding Introduction
+    if (!hasCompletedIntro) {
+      activeScreen = const IntroOnboardingScreen(
+        key: ValueKey('intro_onboarding_screen'),
+      );
+    } else {
+      final user = ref.watch(currentUserProvider);
+
+      // 1. Unauthenticated -> Login & Register Screen
+      if (user == null) {
+        activeScreen = const LoginScreen(
+          key: ValueKey('login_screen'),
+        );
+      } else {
+        // 2. Authenticated -> Inspect Profile Completion Status
+        final completionAsync = ref.watch(profileCompletionProvider(user.id));
+
+        activeScreen = completionAsync.when(
+          data: (isComplete) {
+            if (isComplete) {
+              // Profile is complete -> Access main matrimonial dashboard
+              return const MainNavigationShell(
+                key: ValueKey('main_navigation_shell'),
+              );
+            } else {
+              // Profile is incomplete -> Multi-step onboarding wizard
+              return const OnboardingScreen(
+                key: ValueKey('profile_wizard_screen'),
+              );
+            }
+          },
+          loading: () => const _AuthSplashLoading(
+            key: ValueKey('auth_splash_loading'),
+          ),
+          error: (error, stack) {
+            // Fallback to onboarding if profile check experiences issues
+            return const OnboardingScreen(
+              key: ValueKey('profile_wizard_fallback'),
+            );
+          },
+        );
+      }
     }
 
-    // 2. Authenticated -> Inspect Profile Completion Status
-    final completionAsync = ref.watch(profileCompletionProvider(user.id));
-
-    return completionAsync.when(
-      data: (isComplete) {
-        if (isComplete) {
-          // Profile is complete -> Access main matrimonial dashboard
-          return const MainNavigationShell();
-        } else {
-          // Profile is incomplete -> Multi-step onboarding wizard
-          return const OnboardingScreen();
-        }
-      },
-      loading: () => const _AuthSplashLoading(),
-      error: (error, stack) {
-        // Fallback to onboarding if profile check experiences issues
-        return const OnboardingScreen();
-      },
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: child,
+      ),
+      child: activeScreen,
     );
   }
 }
 
 class _AuthSplashLoading extends StatelessWidget {
-  const _AuthSplashLoading();
+  const _AuthSplashLoading({super.key});
 
   @override
   Widget build(BuildContext context) {

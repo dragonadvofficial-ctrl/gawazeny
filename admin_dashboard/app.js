@@ -689,10 +689,14 @@
     // Update title
     const titles = {
       overview: 'نظرة عامة',
+      alerts: 'إدارة التنبيهات والإشعارات',
+      support: 'رسائل الدعم الفني',
       reports: 'إدارة البلاغات',
       vouchers: 'إدارة القسائم',
       verifications: 'مراجعة التحقق',
       users: 'إدارة المستخدمين',
+      settings: 'الإعدادات العامة والتحكم',
+      audit: 'سجل العمليات الإدارية',
     };
     $('#page-title').textContent = titles[page] || '';
 
@@ -708,10 +712,14 @@
   async function loadPageData(page) {
     switch (page) {
       case 'overview': await loadOverview(); break;
+      case 'alerts': await loadAlerts(); break;
+      case 'support': await loadSupport(); break;
       case 'reports': await loadReports(); break;
       case 'vouchers': await loadVouchers(); break;
       case 'verifications': await loadVerifications(); break;
       case 'users': await loadUsers(); break;
+      case 'settings': await loadSettings(); break;
+      case 'audit': await loadAuditLog(); break;
     }
   }
 
@@ -735,7 +743,9 @@
           { count: pendingReports },
           { count: activeSubs },
           { count: totalVouchers },
-          { count: usedVouchers }
+          { count: usedVouchers },
+          { count: openAlerts },
+          { count: openSupport }
         ] = await Promise.all([
           supabase.from('profiles').select('id', { count: 'exact', head: true }),
           supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('verification_status', 'VERIFIED'),
@@ -744,6 +754,8 @@
           supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('subscription_status', 'ACTIVE'),
           supabase.from('voucher_codes').select('code', { count: 'exact', head: true }),
           supabase.from('voucher_codes').select('code', { count: 'exact', head: true }).eq('is_used', true),
+          supabase.from('admin_alerts').select('id', { count: 'exact', head: true }).eq('status', 'new'),
+          supabase.from('support_messages').select('id', { count: 'exact', head: true }).eq('status', 'open'),
         ]);
 
         stats = {
@@ -755,6 +767,8 @@
           total_vouchers: totalVouchers || 0,
           used_vouchers: usedVouchers || 0,
           unused_vouchers: Math.max(0, (totalVouchers || 0) - (usedVouchers || 0)),
+          open_alerts: openAlerts || 0,
+          open_support: openSupport || 0,
         };
       }
 
@@ -762,6 +776,8 @@
       $('#stat-pending-reports').textContent = stats.pending_reports ?? 0;
       $('#stat-verified-users').textContent = stats.verified_users ?? 0;
       $('#stat-active-subs').textContent = stats.active_subscribers ?? 0;
+      $('#stat-open-alerts').textContent = stats.open_alerts ?? 0;
+      $('#stat-open-support').textContent = stats.open_support ?? 0;
       $('#stat-male-users').textContent = stats.male_users ?? 0;
       $('#stat-female-users').textContent = stats.female_users ?? 0;
       $('#stat-total-matches').textContent = stats.total_matches ?? 0;
@@ -775,6 +791,8 @@
       // Update badges in sidebar
       const reportsBadge = $('#reports-badge');
       const verifBadge = $('#verifications-badge');
+      const alertsBadge = $('#alerts-badge');
+      const supportBadge = $('#support-badge');
 
       if (stats.pending_reports > 0) {
         reportsBadge.textContent = stats.pending_reports;
@@ -788,6 +806,20 @@
         show(verifBadge);
       } else {
         hide(verifBadge);
+      }
+
+      if (stats.open_alerts > 0) {
+        alertsBadge.textContent = stats.open_alerts;
+        show(alertsBadge);
+      } else {
+        hide(alertsBadge);
+      }
+
+      if (stats.open_support > 0) {
+        supportBadge.textContent = stats.open_support;
+        show(supportBadge);
+      } else {
+        hide(supportBadge);
       }
     } catch (err) {
       showToast('فشل تحميل الإحصائيات: ' + err.message, 'error');
@@ -1434,6 +1466,716 @@
   }
 
   // ==========================================================================
+  // AUDIT LOG HELPER
+  // ==========================================================================
+  async function logAdminAction(action, entityType, entityId, oldValues, newValues, description) {
+    try {
+      if (!supabase) return;
+      const adminId = currentUser ? currentUser.id : null;
+      const adminEmail = currentUser ? currentUser.email : 'admin@gawezeny.com';
+      await supabase.from('admin_audit_log').insert({
+        admin_id: adminId,
+        admin_email: adminEmail,
+        action,
+        entity_type: entityType,
+        entity_id: String(entityId || ''),
+        old_values: oldValues || null,
+        new_values: newValues || null,
+        description: description || ''
+      });
+    } catch (err) {
+      console.warn('Audit log write notice:', err);
+    }
+  }
+
+  // ==========================================================================
+  // ALERTS MANAGEMENT
+  // ==========================================================================
+  let currentActiveAlert = null;
+  let alertsDebounceTimer = null;
+
+  const ALERT_TYPE_LABELS = {
+    'report': 'بلاغ مستخدم',
+    'suspicious_activity': 'نشاط مشبوه',
+    'payment_issue': 'مشكلة دفع',
+    'subscription': 'اشتراك',
+    'system_error': 'خطأ نظام',
+    'general': 'عام'
+  };
+
+  const ALERT_STATUS_LABELS = {
+    'new': 'جديد',
+    'in_review': 'قيد المراجعة',
+    'resolved': 'تم الحل'
+  };
+
+  async function loadAlerts() {
+    const tbody = $('#alerts-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">جاري التحميل...</td></tr>';
+
+    try {
+      if (!supabase) throw new Error('Supabase غير متصل');
+      let query = supabase.from('admin_alerts').select('*').order('created_at', { ascending: false });
+
+      const statusFilter = $('#alerts-status-filter')?.value || 'ALL';
+      if (statusFilter !== 'ALL') query = query.eq('status', statusFilter);
+
+      const typeFilter = $('#alerts-type-filter')?.value || 'ALL';
+      if (typeFilter !== 'ALL') query = query.eq('alert_type', typeFilter);
+
+      const sevFilter = $('#alerts-severity-filter')?.value || 'ALL';
+      if (sevFilter !== 'ALL') query = query.eq('severity', sevFilter);
+
+      const { data: alerts, error } = await query;
+      if (error) throw error;
+
+      if (!alerts || alerts.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد تنبيهات تطابق المعايير المحددة</td></tr>';
+        return;
+      }
+
+      const searchQuery = ($('#alerts-search')?.value || '').trim().toLowerCase();
+      const filtered = searchQuery
+        ? alerts.filter(a => (a.title || '').toLowerCase().includes(searchQuery) || (a.description || '').toLowerCase().includes(searchQuery))
+        : alerts;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد نتائج بحث</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = '';
+      for (const alert of filtered) {
+        let userDisplay = '—';
+        if (alert.related_user_id) {
+          const prof = await getProfile(alert.related_user_id);
+          userDisplay = prof ? prof.full_name : alert.related_user_id.slice(0, 8);
+        }
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><span class="badge badge-${alert.severity}">${alert.severity.toUpperCase()}</span></td>
+          <td><span class="tag">${ALERT_TYPE_LABELS[alert.alert_type] || alert.alert_type}</span></td>
+          <td><strong>${escapeHtml(alert.title)}</strong><div class="truncate text-muted" style="font-size:12px;">${escapeHtml(alert.description || '')}</div></td>
+          <td>${escapeHtml(userDisplay)}</td>
+          <td><span class="badge badge-${alert.status}">${ALERT_STATUS_LABELS[alert.status] || alert.status}</span></td>
+          <td class="text-muted" style="font-size:12px;">${formatDateTime(alert.created_at)}</td>
+          <td>
+            <button class="btn btn-outline btn-sm view-alert-btn" data-id="${alert.id}">
+              <span class="material-icons-round">visibility</span>
+              معاينة وحل
+            </button>
+          </td>
+        `;
+        tr.querySelector('.view-alert-btn').addEventListener('click', () => openAlertModal(alert));
+        tbody.appendChild(tr);
+      }
+    } catch (err) {
+      tbody.innerHTML = `<tr class="empty-row error-row"><td colspan="7">خطأ في تحميل التنبيهات: ${escapeHtml(err.message)}</td></tr>`;
+      showToast('تعذر تحميل التنبيهات: ' + err.message, 'error');
+    }
+  }
+
+  function openAlertModal(alert) {
+    currentActiveAlert = alert;
+    $('#alert-modal-title').textContent = alert.title;
+    $('#alert-modal-type').textContent = ALERT_TYPE_LABELS[alert.alert_type] || alert.alert_type;
+    $('#alert-modal-severity').innerHTML = `<span class="badge badge-${alert.severity}">${alert.severity.toUpperCase()}</span>`;
+    $('#alert-modal-status').innerHTML = `<span class="badge badge-${alert.status}">${ALERT_STATUS_LABELS[alert.status] || alert.status}</span>`;
+    $('#alert-modal-user').textContent = alert.related_user_id || 'غير محدد';
+    $('#alert-modal-desc').textContent = alert.description || 'لا يوجد وصف';
+    $('#alert-modal-notes').value = alert.resolution_notes || '';
+    show($('#alert-details-modal'));
+  }
+
+  async function updateAlertStatus(newStatus) {
+    if (!currentActiveAlert || !supabase) return;
+    const notes = $('#alert-modal-notes').value.trim();
+    const oldStatus = currentActiveAlert.status;
+
+    try {
+      const updateData = {
+        status: newStatus,
+        resolution_notes: notes,
+        updated_at: new Date().toISOString()
+      };
+      if (newStatus === 'resolved') {
+        updateData.resolved_at = new Date().toISOString();
+        if (currentUser) updateData.resolved_by = currentUser.id;
+      }
+
+      const { error } = await supabase.from('admin_alerts').update(updateData).eq('id', currentActiveAlert.id);
+      if (error) throw error;
+
+      await logAdminAction(
+        'update_alert_status',
+        'admin_alerts',
+        currentActiveAlert.id,
+        { status: oldStatus },
+        { status: newStatus, resolution_notes: notes },
+        `تحديث حالة التنبيه (${currentActiveAlert.title}) إلى ${newStatus}`
+      );
+
+      hide($('#alert-details-modal'));
+      showToast('تم تحديث حالة التنبيه بنجاح', 'success');
+      await loadAlerts();
+      await loadOverview();
+    } catch (err) {
+      showToast('فشل تحديث التنبيه: ' + err.message, 'error');
+    }
+  }
+
+  function openCreateAlertModal() {
+    $('#create-alert-form').reset();
+    show($('#create-alert-modal'));
+  }
+
+  async function handleCreateAlertSubmit(e) {
+    e.preventDefault();
+    if (!supabase) return;
+
+    const type = $('#new-alert-type').value;
+    const severity = $('#new-alert-severity').value;
+    const title = $('#new-alert-title').value.trim();
+    const desc = $('#new-alert-desc').value.trim();
+    const userId = $('#new-alert-user-id').value.trim() || null;
+
+    if (!title) {
+      showToast('يرجى إدخال عنوان التنبيه', 'warning');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.from('admin_alerts').insert({
+        alert_type: type,
+        severity,
+        title,
+        description: desc,
+        related_user_id: userId,
+        status: 'new'
+      }).select().single();
+
+      if (error) throw error;
+
+      await logAdminAction(
+        'create_alert',
+        'admin_alerts',
+        data ? data.id : null,
+        null,
+        { type, severity, title },
+        `إنشاء تنبيه إداري جديد: ${title}`
+      );
+
+      hide($('#create-alert-modal'));
+      showToast('تمت إضافة التنبيه بنجاح', 'success');
+      await loadAlerts();
+      await loadOverview();
+    } catch (err) {
+      showToast('فشل إنشاء التنبيه: ' + err.message, 'error');
+    }
+  }
+
+  // ==========================================================================
+  // SUPPORT MESSAGES MANAGEMENT
+  // ==========================================================================
+  let currentActiveSupportMsg = null;
+  let supportDebounceTimer = null;
+
+  async function loadSupport() {
+    const tbody = $('#support-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">جاري التحميل...</td></tr>';
+
+    try {
+      if (!supabase) throw new Error('Supabase غير متصل');
+      let query = supabase.from('support_messages').select('*').order('created_at', { ascending: false });
+
+      const statusFilter = $('#support-status-filter')?.value || 'ALL';
+      if (statusFilter !== 'ALL') query = query.eq('status', statusFilter);
+
+      const { data: messages, error } = await query;
+      if (error) throw error;
+
+      if (!messages || messages.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد رسائل دعم واردة في هذا القسم</td></tr>';
+        return;
+      }
+
+      const searchQuery = ($('#support-search')?.value || '').trim().toLowerCase();
+      const filtered = searchQuery
+        ? messages.filter(m => (m.subject || '').toLowerCase().includes(searchQuery) || (m.content || '').toLowerCase().includes(searchQuery))
+        : messages;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد نتائج بحث</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = '';
+      for (const msg of filtered) {
+        const prof = await getProfile(msg.user_id);
+        const userName = prof ? prof.full_name : msg.user_id.slice(0, 8);
+
+        const tr = document.createElement('tr');
+        const hasReply = Boolean(msg.admin_reply);
+
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(userName)}</strong></td>
+          <td>${escapeHtml(msg.subject || 'استفسار عام')}</td>
+          <td><div class="truncate text-muted">${escapeHtml(msg.content)}</div></td>
+          <td><span class="badge badge-${msg.status}">${msg.status === 'open' ? 'مفتوحة' : msg.status === 'in_progress' ? 'قيد المعالجة' : 'مغلقة'}</span></td>
+          <td>${hasReply ? '<span class="tag tag-success">تم الرد</span>' : '<span class="tag tag-warning">بانتظار الرد</span>'}</td>
+          <td class="text-muted" style="font-size:12px;">${formatDateTime(msg.created_at)}</td>
+          <td>
+            <button class="btn btn-outline btn-sm reply-support-btn" data-id="${msg.id}">
+              <span class="material-icons-round">reply</span>
+              عرض والرد
+            </button>
+          </td>
+        `;
+        tr.querySelector('.reply-support-btn').addEventListener('click', () => openSupportModal(msg, userName));
+        tbody.appendChild(tr);
+      }
+    } catch (err) {
+      tbody.innerHTML = `<tr class="empty-row error-row"><td colspan="7">خطأ في تحميل رسائل الدعم: ${escapeHtml(err.message)}</td></tr>`;
+      showToast('تعذر تحميل رسائل الدعم: ' + err.message, 'error');
+    }
+  }
+
+  function openSupportModal(msg, userName) {
+    currentActiveSupportMsg = msg;
+    $('#support-modal-subject').textContent = msg.subject || 'رسالة دعم';
+    $('#support-modal-sender').textContent = userName || msg.user_id;
+    $('#support-modal-date').textContent = formatDateTime(msg.created_at);
+    $('#support-modal-status').innerHTML = `<span class="badge badge-${msg.status}">${msg.status === 'open' ? 'مفتوحة' : msg.status === 'in_progress' ? 'قيد المعالجة' : 'مغلقة'}</span>`;
+    $('#support-modal-content').textContent = msg.content;
+    $('#support-reply-text').value = msg.admin_reply || '';
+    $('#support-reply-status').value = msg.status === 'open' ? 'closed' : msg.status;
+    show($('#support-modal'));
+  }
+
+  async function handleSupportReplySubmit(e) {
+    e.preventDefault();
+    if (!currentActiveSupportMsg || !supabase) return;
+
+    const replyText = $('#support-reply-text').value.trim();
+    const newStatus = $('#support-reply-status').value;
+
+    if (!replyText) {
+      showToast('يرجى كتابة نص الرد قبل الإرسال', 'warning');
+      return;
+    }
+
+    try {
+      const updateData = {
+        admin_reply: replyText,
+        status: newStatus,
+        replied_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      if (currentUser) updateData.admin_id = currentUser.id;
+
+      const { error } = await supabase.from('support_messages').update(updateData).eq('id', currentActiveSupportMsg.id);
+      if (error) throw error;
+
+      await logAdminAction(
+        'reply_support_message',
+        'support_messages',
+        currentActiveSupportMsg.id,
+        { status: currentActiveSupportMsg.status, admin_reply: currentActiveSupportMsg.admin_reply },
+        { status: newStatus, admin_reply: replyText },
+        `الرد على تذكرة دعم المستخدم: ${currentActiveSupportMsg.subject || ''}`
+      );
+
+      hide($('#support-modal'));
+      showToast('تم إرسال الرد وتحديث حالة الرسالة بنجاح', 'success');
+      await loadSupport();
+      await loadOverview();
+    } catch (err) {
+      showToast('فشل إرسال الرد: ' + err.message, 'error');
+    }
+  }
+
+  // ==========================================================================
+  // SETTINGS MANAGEMENT (Payments, Plans, Chat Limits)
+  // ==========================================================================
+  async function loadSettings() {
+    await Promise.all([
+      loadPaymentSettings(),
+      loadSubscriptionPlans(),
+      loadChatLimitsSettings()
+    ]);
+  }
+
+  async function loadPaymentSettings() {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase.from('payment_settings').select('*').eq('id', 'default').maybeSingle();
+      if (error) throw error;
+
+      if (data) {
+        $('#cfg-voda-number').value = data.vodafone_cash_number || '';
+        $('#cfg-voda-name').value = data.vodafone_cash_name || '';
+        $('#cfg-voda-enabled').checked = Boolean(data.vodafone_cash_enabled);
+        $('#cfg-insta-account').value = data.instapay_account || '';
+        $('#cfg-insta-name').value = data.instapay_name || '';
+        $('#cfg-insta-enabled').checked = Boolean(data.instapay_enabled);
+        $('#cfg-support-whatsapp').value = data.support_whatsapp || '';
+      }
+    } catch (err) {
+      console.warn('loadPaymentSettings notice:', err);
+    }
+  }
+
+  async function handlePaymentSettingsSubmit(e) {
+    e.preventDefault();
+    if (!supabase) return;
+
+    const vodaNum = $('#cfg-voda-number').value.trim();
+    const vodaName = $('#cfg-voda-name').value.trim();
+    const vodaEnabled = $('#cfg-voda-enabled').checked;
+    const instaAcc = $('#cfg-insta-account').value.trim();
+    const instaName = $('#cfg-insta-name').value.trim();
+    const instaEnabled = $('#cfg-insta-enabled').checked;
+    const supportWa = $('#cfg-support-whatsapp').value.trim();
+
+    // Validation
+    const phoneRegex = /^01[0125][0-9]{8}$/;
+    if (!phoneRegex.test(vodaNum)) {
+      showToast('رقم فودافون كاش غير صحيح. يجب أن يتكون من 11 رقماً ويبدأ بـ 010 أو 011 أو 012 أو 015', 'warning');
+      return;
+    }
+    if (!phoneRegex.test(supportWa)) {
+      showToast('رقم واتساب الدعم غير صحيح. يجب أن يكون رقماً مصرياً صالحاً', 'warning');
+      return;
+    }
+    if (!instaAcc) {
+      showToast('يرجى إدخال عنوان حساب إنستاباي (IPA)', 'warning');
+      return;
+    }
+
+    try {
+      const payload = {
+        id: 'default',
+        vodafone_cash_number: vodaNum,
+        vodafone_cash_name: vodaName,
+        vodafone_cash_enabled: vodaEnabled,
+        instapay_account: instaAcc,
+        instapay_name: instaName,
+        instapay_enabled: instaEnabled,
+        support_whatsapp: supportWa,
+        updated_at: new Date().toISOString()
+      };
+      if (currentUser) payload.updated_by = currentUser.id;
+
+      const { error } = await supabase.from('payment_settings').upsert(payload);
+      if (error) throw error;
+
+      await logAdminAction(
+        'update_payment_settings',
+        'payment_settings',
+        'default',
+        null,
+        payload,
+        'تحديث إعدادات بوابات الدفع (Vodafone Cash & InstaPay)'
+      );
+
+      showToast('تم حفظ إعدادات بوابات الدفع بنجاح وعكسها في التطبيق', 'success');
+    } catch (err) {
+      showToast('فشل حفظ إعدادات الدفع: ' + err.message, 'error');
+    }
+  }
+
+  function handleTestDeepLinks() {
+    const voda = $('#cfg-voda-number').value.trim() || '01099887766';
+    const insta = $('#cfg-insta-account').value.trim() || 'gawezeny@instapay';
+    const wa = $('#cfg-support-whatsapp').value.trim() || '01099887766';
+
+    const sampleAmount = 200;
+    const ussd = `*9*7*${voda}*${sampleAmount}#`;
+    const instapayUri = `instapay://`;
+    const waUri = `https://wa.me/2${wa}`;
+
+    showConfirm(
+      'معاينة روابط الدفع المدعومة',
+      `• كود فودافون كاش المباشر (USSD):\n  ${ussd}\n\n• رابط فتح إنستا باي (Deep Link):\n  ${instapayUri}\n\n• رابط واتساب الدعم:\n  ${waUri}\n\nجميع الروابط جاهزة ومطابقة للمواصفات الرسمية.`,
+      'btn-primary'
+    );
+  }
+
+  // --- Subscription Plans Management ---
+  async function loadSubscriptionPlans() {
+    const tbody = $('#plans-tbody');
+    if (!tbody || !supabase) return;
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">جاري التحميل...</td></tr>';
+
+    try {
+      const [plansRes, subsRes] = await Promise.all([
+        supabase.from('subscription_plans').select('*').order('sort_order', { ascending: true }),
+        supabase.from('subscriptions').select('tier').eq('status', 'ACTIVE')
+      ]);
+
+      if (plansRes.error) throw plansRes.error;
+      const plans = plansRes.data || [];
+
+      // Count active subscribers per tier
+      const subCounts = {};
+      if (subsRes.data) {
+        for (const s of subsRes.data) {
+          subCounts[s.tier] = (subCounts[s.tier] || 0) + 1;
+        }
+      }
+
+      if (plans.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="9">لا توجد خطط اشتراك مسجلة</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = '';
+      for (const p of plans) {
+        const tr = document.createElement('tr');
+        const activeCount = subCounts[p.tier_key] || 0;
+
+        tr.innerHTML = `
+          <td><code>${escapeHtml(p.tier_key)}</code></td>
+          <td><strong>${escapeHtml(p.name_ar)}</strong></td>
+          <td>${p.price_egp} ج.م</td>
+          <td>${p.duration_days} يوم</td>
+          <td>${p.chat_message_limit ? p.chat_message_limit + ' رسالة' : 'غير محدود'}</td>
+          <td>${p.is_popular ? '<span class="tag tag-pink">شائع</span>' : p.is_best_value ? '<span class="tag tag-gold">أفضل قيمة</span>' : '—'}</td>
+          <td><span class="badge ${p.is_active ? 'badge-success' : 'badge-disabled'}">${p.is_active ? 'نشطة' : 'معطلة'}</span></td>
+          <td><strong>${activeCount}</strong> مشترك</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-outline btn-sm edit-plan-btn" data-key="${p.tier_key}">
+                <span class="material-icons-round">edit</span>
+                تعديل
+              </button>
+              <button class="btn ${p.is_active ? 'btn-danger' : 'btn-success'} btn-sm toggle-plan-btn" data-key="${p.tier_key}">
+                ${p.is_active ? 'تعطيل' : 'تفعيل'}
+              </button>
+            </div>
+          </td>
+        `;
+        tr.querySelector('.edit-plan-btn').addEventListener('click', () => openPlanModal(p));
+        tr.querySelector('.toggle-plan-btn').addEventListener('click', () => togglePlanActive(p));
+        tbody.appendChild(tr);
+      }
+    } catch (err) {
+      tbody.innerHTML = `<tr class="empty-row error-row"><td colspan="9">خطأ في تحميل الخطط: ${escapeHtml(err.message)}</td></tr>`;
+      console.warn('loadSubscriptionPlans error:', err);
+    }
+  }
+
+  function openPlanModal(plan = null) {
+    $('#plan-id').value = plan ? plan.id : '';
+    $('#plan-tier-key').value = plan ? plan.tier_key : '';
+    $('#plan-tier-key').readOnly = Boolean(plan);
+    $('#plan-name-ar').value = plan ? plan.name_ar : '';
+    $('#plan-name-en').value = plan ? plan.name_en : '';
+    $('#plan-price').value = plan ? plan.price_egp : '';
+    $('#plan-duration').value = plan ? plan.duration_days : 30;
+    $('#plan-chat-limit').value = plan && plan.chat_message_limit ? plan.chat_message_limit : '';
+    $('#plan-features-ar').value = plan && plan.features_ar ? plan.features_ar.join('\n') : '';
+    $('#plan-is-active').checked = plan ? Boolean(plan.is_active) : true;
+    $('#plan-is-popular').checked = plan ? Boolean(plan.is_popular) : false;
+    $('#plan-modal-title').textContent = plan ? 'تعديل خطة الاشتراك' : 'إضافة خطة اشتراك جديدة';
+    show($('#plan-modal'));
+  }
+
+  async function handlePlanSubmit(e) {
+    e.preventDefault();
+    if (!supabase) return;
+
+    const id = $('#plan-id').value;
+    const tierKey = $('#plan-tier-key').value.trim().toUpperCase();
+    const nameAr = $('#plan-name-ar').value.trim();
+    const nameEn = $('#plan-name-en').value.trim();
+    const price = parseFloat($('#plan-price').value) || 0;
+    const duration = parseInt($('#plan-duration').value, 10) || 30;
+    const chatLimitRaw = $('#plan-chat-limit').value.trim();
+    const chatLimit = chatLimitRaw ? parseInt(chatLimitRaw, 10) : null;
+    const featuresRaw = $('#plan-features-ar').value.trim();
+    const featuresAr = featuresRaw ? featuresRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean) : [];
+    const isActive = $('#plan-is-active').checked;
+    const isPopular = $('#plan-is-popular').checked;
+
+    if (!tierKey || !nameAr) {
+      showToast('يرجى ملء مفتاح الخطة والاسم بالعربية', 'warning');
+      return;
+    }
+
+    try {
+      const payload = {
+        tier_key: tierKey,
+        name_ar: nameAr,
+        name_en: nameEn || nameAr,
+        price_egp: price,
+        duration_days: duration,
+        chat_message_limit: chatLimit,
+        features_ar: featuresAr,
+        is_active: isActive,
+        is_popular: isPopular,
+        updated_at: new Date().toISOString()
+      };
+
+      if (id) {
+        const { error } = await supabase.from('subscription_plans').update(payload).eq('id', id);
+        if (error) throw error;
+        await logAdminAction('update_plan', 'subscription_plans', tierKey, null, payload, `تعديل خطة الاشتراك (${nameAr})`);
+      } else {
+        const { error } = await supabase.from('subscription_plans').insert(payload);
+        if (error) throw error;
+        await logAdminAction('create_plan', 'subscription_plans', tierKey, null, payload, `إنشاء خطة اشتراك جديدة (${nameAr})`);
+      }
+
+      hide($('#plan-modal'));
+      showToast('تم حفظ خطة الاشتراك بنجاح', 'success');
+      await loadSubscriptionPlans();
+    } catch (err) {
+      showToast('فشل حفظ الخطة: ' + err.message, 'error');
+    }
+  }
+
+  async function togglePlanActive(plan) {
+    if (!supabase) return;
+    const newStatus = !plan.is_active;
+    const actionText = newStatus ? 'تفعيل' : 'تعطيل';
+    const confirmed = await showConfirm(
+      `${actionText} خطة الاشتراك`,
+      `هل أنت متأكد من ${actionText} خطة "${plan.name_ar}"؟ لن تتأثر الاشتراكات النشطة الحالية للمستخدمين.`,
+      newStatus ? 'btn-success' : 'btn-danger'
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.from('subscription_plans').update({
+        is_active: newStatus,
+        updated_at: new Date().toISOString()
+      }).eq('id', plan.id);
+      if (error) throw error;
+
+      await logAdminAction('toggle_plan_status', 'subscription_plans', plan.tier_key, { is_active: plan.is_active }, { is_active: newStatus }, `${actionText} خطة: ${plan.name_ar}`);
+      showToast(`تم ${actionText} الخطة بنجاح`, 'success');
+      await loadSubscriptionPlans();
+    } catch (err) {
+      showToast(`فشل ${actionText} الخطة: ` + err.message, 'error');
+    }
+  }
+
+  // --- Chat Message Limits Settings ---
+  async function loadChatLimitsSettings() {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase.from('chat_limit_settings').select('*').eq('id', 'default').maybeSingle();
+      if (error) throw error;
+
+      if (data) {
+        $('#cfg-chat-daily-limit').value = data.free_daily_limit ?? 5;
+        $('#cfg-chat-monthly-limit').value = data.free_monthly_limit ?? 50;
+        $('#cfg-chat-limit-action').value = data.limit_action || 'block_and_prompt';
+        $('#cfg-chat-limits-enabled').checked = Boolean(data.enabled);
+      }
+    } catch (err) {
+      console.warn('loadChatLimitsSettings notice:', err);
+    }
+  }
+
+  async function handleChatLimitsSubmit(e) {
+    e.preventDefault();
+    if (!supabase) return;
+
+    const dailyLimit = parseInt($('#cfg-chat-daily-limit').value, 10) || 5;
+    const monthlyLimit = parseInt($('#cfg-chat-monthly-limit').value, 10) || 50;
+    const action = $('#cfg-chat-limit-action').value;
+    const enabled = $('#cfg-chat-limits-enabled').checked;
+
+    try {
+      const payload = {
+        id: 'default',
+        free_daily_limit: dailyLimit,
+        free_monthly_limit: monthlyLimit,
+        limit_action: action,
+        enabled,
+        updated_at: new Date().toISOString()
+      };
+      if (currentUser) payload.updated_by = currentUser.id;
+
+      const { error } = await supabase.from('chat_limit_settings').upsert(payload);
+      if (error) throw error;
+
+      await logAdminAction(
+        'update_chat_limits',
+        'chat_limit_settings',
+        'default',
+        null,
+        payload,
+        `تحديث حدود رسائل الشات (يومي: ${dailyLimit}, شهري: ${monthlyLimit}, الإجراء: ${action}, مفعل: ${enabled})`
+      );
+
+      showToast('تم حفظ إعدادات حدود رسائل الشات بنجاح وتطبيقها في الـ Backend والتطبيق', 'success');
+    } catch (err) {
+      showToast('فشل حفظ حدود الشات: ' + err.message, 'error');
+    }
+  }
+
+  // ==========================================================================
+  // AUDIT LOG PAGE
+  // ==========================================================================
+  let auditDebounceTimer = null;
+
+  async function loadAuditLog() {
+    const tbody = $('#audit-table tbody');
+    if (!tbody || !supabase) return;
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">جاري التحميل...</td></tr>';
+
+    try {
+      const { data: logs, error } = await supabase
+        .from('admin_audit_log')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+
+      if (!logs || logs.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="5">لا توجد عمليات إدارية مسجلة بعد</td></tr>';
+        return;
+      }
+
+      const searchQuery = ($('#audit-search')?.value || '').trim().toLowerCase();
+      const filtered = searchQuery
+        ? logs.filter(l => (l.action || '').toLowerCase().includes(searchQuery) || (l.description || '').toLowerCase().includes(searchQuery) || (l.admin_email || '').toLowerCase().includes(searchQuery))
+        : logs;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="5">لا توجد نتائج بحث</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = '';
+      for (const log of filtered) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(log.admin_email || 'مدير النظام')}</strong></td>
+          <td><span class="tag tag-navy">${escapeHtml(log.action)}</span></td>
+          <td><code>${escapeHtml(log.entity_type || '—')} / ${escapeHtml(log.entity_id || '—')}</code></td>
+          <td>
+            <div style="font-weight:600;">${escapeHtml(log.description || '—')}</div>
+            ${log.new_values ? `<pre style="font-size:11px; color:var(--text-muted); margin:4px 0 0 0; max-height:40px; overflow:hidden;">${escapeHtml(JSON.stringify(log.new_values))}</pre>` : ''}
+          </td>
+          <td class="text-muted" style="font-size:12px;">${formatDateTime(log.created_at)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    } catch (err) {
+      tbody.innerHTML = `<tr class="empty-row error-row"><td colspan="5">خطأ في تحميل سجل العمليات: ${escapeHtml(err.message)}</td></tr>`;
+      console.warn('loadAuditLog error:', err);
+    }
+  }
+
+  // ==========================================================================
   // EVENT LISTENERS
   // ==========================================================================
   function initEventListeners() {
@@ -1546,6 +2288,85 @@
     $('#users-gender-filter').addEventListener('change', loadUsers);
     $('#users-verification-filter').addEventListener('change', loadUsers);
     $('#users-subscription-filter').addEventListener('change', loadUsers);
+
+    // Alerts Search & Filters
+    if ($('#alerts-status-filter')) $('#alerts-status-filter').addEventListener('change', loadAlerts);
+    if ($('#alerts-type-filter')) $('#alerts-type-filter').addEventListener('change', loadAlerts);
+    if ($('#alerts-severity-filter')) $('#alerts-severity-filter').addEventListener('change', loadAlerts);
+    if ($('#alerts-search')) {
+      $('#alerts-search').addEventListener('input', () => {
+        clearTimeout(alertsDebounceTimer);
+        alertsDebounceTimer = setTimeout(loadAlerts, 300);
+      });
+    }
+    if ($('#create-alert-btn')) $('#create-alert-btn').addEventListener('click', openCreateAlertModal);
+    if ($('#create-alert-modal-close')) $('#create-alert-modal-close').addEventListener('click', () => hide($('#create-alert-modal')));
+    if ($('#create-alert-cancel')) $('#create-alert-cancel').addEventListener('click', () => hide($('#create-alert-modal')));
+    if ($('#create-alert-modal')) {
+      $('#create-alert-modal').addEventListener('click', (e) => {
+        if (e.target === $('#create-alert-modal')) hide($('#create-alert-modal'));
+      });
+    }
+    if ($('#create-alert-form')) $('#create-alert-form').addEventListener('submit', handleCreateAlertSubmit);
+    if ($('#alert-modal-close')) $('#alert-modal-close').addEventListener('click', () => hide($('#alert-details-modal')));
+    if ($('#alert-details-modal')) {
+      $('#alert-details-modal').addEventListener('click', (e) => {
+        if (e.target === $('#alert-details-modal')) hide($('#alert-details-modal'));
+      });
+    }
+    if ($('#alert-set-in-review-btn')) $('#alert-set-in-review-btn').addEventListener('click', () => updateAlertStatus('in_review'));
+    if ($('#alert-set-resolved-btn')) $('#alert-set-resolved-btn').addEventListener('click', () => updateAlertStatus('resolved'));
+
+    // Support Messages
+    if ($('#support-status-filter')) $('#support-status-filter').addEventListener('change', loadSupport);
+    if ($('#support-search')) {
+      $('#support-search').addEventListener('input', () => {
+        clearTimeout(supportDebounceTimer);
+        supportDebounceTimer = setTimeout(loadSupport, 300);
+      });
+    }
+    if ($('#support-modal-close')) $('#support-modal-close').addEventListener('click', () => hide($('#support-modal')));
+    if ($('#support-reply-cancel')) $('#support-reply-cancel').addEventListener('click', () => hide($('#support-modal')));
+    if ($('#support-modal')) {
+      $('#support-modal').addEventListener('click', (e) => {
+        if (e.target === $('#support-modal')) hide($('#support-modal'));
+      });
+    }
+    if ($('#support-reply-form')) $('#support-reply-form').addEventListener('submit', handleSupportReplySubmit);
+
+    // Settings Navigation Tabs
+    $$('.settings-tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetTabId = btn.dataset.tab;
+        $$('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+        $$('.settings-tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        const targetContent = document.getElementById(targetTabId);
+        if (targetContent) targetContent.classList.add('active');
+      });
+    });
+
+    // Settings Forms & Actions
+    if ($('#payment-settings-form')) $('#payment-settings-form').addEventListener('submit', handlePaymentSettingsSubmit);
+    if ($('#test-deep-links-btn')) $('#test-deep-links-btn').addEventListener('click', handleTestDeepLinks);
+    if ($('#add-plan-btn')) $('#add-plan-btn').addEventListener('click', () => openPlanModal(null));
+    if ($('#plan-modal-close')) $('#plan-modal-close').addEventListener('click', () => hide($('#plan-modal')));
+    if ($('#plan-modal-cancel')) $('#plan-modal-cancel').addEventListener('click', () => hide($('#plan-modal')));
+    if ($('#plan-modal')) {
+      $('#plan-modal').addEventListener('click', (e) => {
+        if (e.target === $('#plan-modal')) hide($('#plan-modal'));
+      });
+    }
+    if ($('#plan-form')) $('#plan-form').addEventListener('submit', handlePlanSubmit);
+    if ($('#chat-limits-form')) $('#chat-limits-form').addEventListener('submit', handleChatLimitsSubmit);
+
+    // Audit Log Search
+    if ($('#audit-search')) {
+      $('#audit-search').addEventListener('input', () => {
+        clearTimeout(auditDebounceTimer);
+        auditDebounceTimer = setTimeout(loadAuditLog, 300);
+      });
+    }
   }
 
   // Sidebar overlay for mobile

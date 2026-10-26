@@ -7,6 +7,7 @@ import '../../../core/localization/app_translations.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/network/supabase_client.dart';
 import '../../profile/presentation/widgets/report_user_sheet.dart';
+import '../../subscriptions/presentation/subscriptions_screen.dart';
 import '../../verification/presentation/identity_verification_screen.dart';
 import '../domain/chat_message.dart';
 import 'chat_controller.dart';
@@ -815,22 +816,48 @@ class _ErrorStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLimitError = message.contains('استنفدت') || message.contains('الحد');
+
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 6.h),
+      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
       color: AppColors.errorRed.withValues(alpha: 0.1),
       child: Row(
         children: [
           Icon(Icons.warning_rounded,
-              color: AppColors.errorRed, size: 14.sp),
-          SizedBox(width: 6.w),
+              color: AppColors.errorRed, size: 16.sp),
+          SizedBox(width: 8.w),
           Expanded(
             child: Text(
               message,
               style: AppTextStyles.labelSmall
-                  .copyWith(color: AppColors.errorRed),
+                  .copyWith(color: AppColors.errorRed, fontWeight: FontWeight.w600),
             ),
           ),
+          if (isLimitError) ...[
+            SizedBox(width: 8.w),
+            TextButton(
+              style: TextButton.styleFrom(
+                backgroundColor: AppColors.secondaryPink,
+                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SubscriptionsScreen()),
+                );
+              },
+              child: Text(
+                context.isArabic ? 'ترقية الباقة' : 'Upgrade',
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
