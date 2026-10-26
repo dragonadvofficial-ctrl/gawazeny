@@ -4,6 +4,37 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
+-- 0. PREREQUISITES (ADMIN USERS TABLE & HELPER FUNCTION)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admin_users (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL UNIQUE,
+  display_name TEXT,
+  role TEXT NOT NULL DEFAULT 'ADMIN' CHECK (role IN ('SUPER_ADMIN', 'ADMIN', 'MODERATOR')),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "admin_users_select_own" ON admin_users;
+CREATE POLICY "admin_users_select_own"
+ON admin_users FOR SELECT
+TO authenticated
+USING (id = auth.uid());
+
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM admin_users WHERE id = auth.uid()
+  );
+$$;
+
+-- ----------------------------------------------------------------------------
 -- 1. SUPPORT MESSAGES TABLE
 -- Stores messages sent from users to the admin support team.
 -- ----------------------------------------------------------------------------
@@ -232,7 +263,7 @@ INSERT INTO chat_limit_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTH
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  admin_id UUID NOT NULL REFERENCES admin_users(id),
+  admin_id UUID REFERENCES admin_users(id),
   admin_email TEXT,
   action TEXT NOT NULL,
   entity_type TEXT,
@@ -407,10 +438,10 @@ BEGIN
   SELECT COUNT(*) INTO v_total_users FROM profiles;
   SELECT COUNT(*) INTO v_verified_users FROM profiles WHERE verification_status = 'VERIFIED';
   SELECT COUNT(*) INTO v_active_subs FROM subscriptions WHERE status = 'ACTIVE';
-  SELECT COUNT(*) INTO v_pending_reports FROM reports WHERE status = 'PENDING';
+  SELECT COUNT(*) INTO v_pending_reports FROM user_reports WHERE status = 'PENDING';
   SELECT COUNT(*) INTO v_open_support FROM support_messages WHERE status = 'open';
   SELECT COUNT(*) INTO v_open_alerts FROM admin_alerts WHERE status = 'new';
-  SELECT COALESCE(SUM(amount_paid), 0) INTO v_total_revenue FROM subscriptions WHERE status = 'ACTIVE';
+  SELECT COALESCE(SUM(amount_egp), 0) INTO v_total_revenue FROM subscriptions WHERE status = 'ACTIVE';
 
   RETURN jsonb_build_object(
     'total_users', v_total_users,
