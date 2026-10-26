@@ -1,18 +1,5 @@
 {
   "version": 2,
-  "cleanUrls": true,
-  "rewrites": [
-    {
-      "source": "/",
-      "destination": "/admin_dashboard/index.html"
-    },
-    {
-      "source": "/verify",
-      "destination": "/admin_dashboard/verify.html"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/admin_dashboard/$1"
-    }
-  ]
+  "outputDirectory": "admin_dashboard",
+  "cleanUrls": true
 }
