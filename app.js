@@ -1804,7 +1804,9 @@
     await Promise.all([
       loadPaymentSettings(),
       loadSubscriptionPlans(),
-      loadChatLimitsSettings()
+      loadChatLimitsSettings(),
+      loadChatModerationSettings(),
+      loadChatModerationViolations()
     ]);
   }
 
@@ -1977,6 +1979,7 @@
     $('#plan-price').value = plan ? plan.price_egp : '';
     $('#plan-duration').value = plan ? plan.duration_days : 30;
     $('#plan-chat-limit').value = plan && plan.chat_message_limit ? plan.chat_message_limit : '';
+    $('#plan-chat-period').value = plan && plan.chat_limit_period ? plan.chat_limit_period : 'monthly';
     $('#plan-features-ar').value = plan && plan.features_ar ? plan.features_ar.join('\n') : '';
     $('#plan-is-active').checked = plan ? Boolean(plan.is_active) : true;
     $('#plan-is-popular').checked = plan ? Boolean(plan.is_popular) : false;
@@ -1996,6 +1999,7 @@
     const duration = parseInt($('#plan-duration').value, 10) || 30;
     const chatLimitRaw = $('#plan-chat-limit').value.trim();
     const chatLimit = chatLimitRaw ? parseInt(chatLimitRaw, 10) : null;
+    const chatLimitPeriod = $('#plan-chat-period').value || 'monthly';
     const featuresRaw = $('#plan-features-ar').value.trim();
     const featuresAr = featuresRaw ? featuresRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean) : [];
     const isActive = $('#plan-is-active').checked;
@@ -2014,6 +2018,7 @@
         price_egp: price,
         duration_days: duration,
         chat_message_limit: chatLimit,
+        chat_limit_period: chatLimitPeriod,
         features_ar: featuresAr,
         is_active: isActive,
         is_popular: isPopular,
@@ -2031,8 +2036,9 @@
       }
 
       hide($('#plan-modal'));
-      showToast('تم حفظ خطة الاشتراك بنجاح', 'success');
+      showToast('تم حفظ خطة الاشتراك بنجاح وتحديث حدود الرسائل', 'success');
       await loadSubscriptionPlans();
+      await loadChatLimitsSettings();
     } catch (err) {
       showToast('فشل حفظ الخطة: ' + err.message, 'error');
     }
@@ -2072,13 +2078,66 @@
       if (error) throw error;
 
       if (data) {
-        $('#cfg-chat-daily-limit').value = data.free_daily_limit ?? 5;
-        $('#cfg-chat-monthly-limit').value = data.free_monthly_limit ?? 50;
-        $('#cfg-chat-limit-action').value = data.limit_action || 'block_and_prompt';
-        $('#cfg-chat-limits-enabled').checked = Boolean(data.enabled);
+        if ($('#cfg-chat-daily-limit')) $('#cfg-chat-daily-limit').value = data.free_daily_limit ?? 10;
+        if ($('#cfg-chat-monthly-limit')) $('#cfg-chat-monthly-limit').value = data.free_monthly_limit ?? 50;
+        if ($('#cfg-chat-total-limit')) $('#cfg-chat-total-limit').value = data.free_total_limit ?? '';
+        if ($('#cfg-chat-period')) $('#cfg-chat-period').value = data.free_limit_period || 'monthly';
+        if ($('#cfg-chat-limit-action')) $('#cfg-chat-limit-action').value = data.limit_action || 'block_and_prompt';
+        if ($('#cfg-chat-limits-enabled')) $('#cfg-chat-limits-enabled').checked = Boolean(data.enabled);
       }
+
+      // Populate Subscribed Plans summary table in limits tab
+      await loadChatLimitsPlansSummary();
     } catch (err) {
       console.warn('loadChatLimitsSettings notice:', err);
+    }
+  }
+
+  async function loadChatLimitsPlansSummary() {
+    const tbody = $('#limits-plans-summary-tbody');
+    if (!tbody || !supabase) return;
+
+    try {
+      const { data: plans, error } = await supabase
+        .from('subscription_plans')
+        .select('*')
+        .order('sort_order', { ascending: true });
+
+      if (error) throw error;
+
+      if (!plans || plans.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد خطط اشتراك مسجلة بعد</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = '';
+      for (const p of plans) {
+        const periodText = p.chat_limit_period === 'daily'
+          ? 'يومياً'
+          : p.chat_limit_period === 'per_subscription'
+            ? 'خلال مدة الباقة'
+            : 'شهرياً';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><code>${escapeHtml(p.tier_key)}</code></td>
+          <td><strong>${escapeHtml(p.name_ar)}</strong></td>
+          <td>${p.price_egp} ج.م</td>
+          <td>${p.duration_days} يوم</td>
+          <td>${p.chat_message_limit ? '<strong style="color:var(--primary);">' + p.chat_message_limit + ' رسالة</strong>' : '<span class="tag tag-gold">غير محدود</span>'}</td>
+          <td>${periodText}</td>
+          <td>
+            <button class="btn btn-outline btn-sm quick-edit-limit-btn" data-key="${p.tier_key}">
+              <span class="material-icons-round">edit</span>
+              تعديل الحد
+            </button>
+          </td>
+        `;
+        tr.querySelector('.quick-edit-limit-btn').addEventListener('click', () => openPlanModal(p));
+        tbody.appendChild(tr);
+      }
+    } catch (err) {
+      tbody.innerHTML = `<tr class="empty-row error-row"><td colspan="7">خطأ في تحميل ملخص حدود الباقات: ${escapeHtml(err.message)}</td></tr>`;
     }
   }
 
@@ -2086,8 +2145,11 @@
     e.preventDefault();
     if (!supabase) return;
 
-    const dailyLimit = parseInt($('#cfg-chat-daily-limit').value, 10) || 5;
+    const dailyLimit = parseInt($('#cfg-chat-daily-limit').value, 10) || 10;
     const monthlyLimit = parseInt($('#cfg-chat-monthly-limit').value, 10) || 50;
+    const totalLimitRaw = $('#cfg-chat-total-limit').value.trim();
+    const totalLimit = totalLimitRaw ? parseInt(totalLimitRaw, 10) : null;
+    const period = $('#cfg-chat-period').value || 'monthly';
     const action = $('#cfg-chat-limit-action').value;
     const enabled = $('#cfg-chat-limits-enabled').checked;
 
@@ -2096,6 +2158,8 @@
         id: 'default',
         free_daily_limit: dailyLimit,
         free_monthly_limit: monthlyLimit,
+        free_total_limit: totalLimit,
+        free_limit_period: period,
         limit_action: action,
         enabled,
         updated_at: new Date().toISOString()
@@ -2111,12 +2175,141 @@
         'default',
         null,
         payload,
-        `تحديث حدود رسائل الشات (يومي: ${dailyLimit}, شهري: ${monthlyLimit}, الإجراء: ${action}, مفعل: ${enabled})`
+        `تحديث حدود رسائل الشات للمستخدمين المجانيين (الفترة: ${period}, يومي: ${dailyLimit}, شهري: ${monthlyLimit}, إجمالي: ${totalLimit ?? 'غير محدد'}, مفعل: ${enabled})`
       );
 
-      showToast('تم حفظ إعدادات حدود رسائل الشات بنجاح وتطبيقها في الـ Backend والتطبيق', 'success');
+      showToast('تم حفظ وتطبيق إعدادات حدود رسائل الشات بنجاح في الـ Backend وقاعدة البيانات', 'success');
     } catch (err) {
       showToast('فشل حفظ حدود الشات: ' + err.message, 'error');
+    }
+  }
+
+  // --- Chat Moderation Settings & Violations Log ---
+  async function loadChatModerationSettings() {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase.from('chat_moderation_settings').select('*').eq('id', 'default').maybeSingle();
+      if (error) throw error;
+
+      if (data) {
+        if ($('#cfg-mod-phones')) $('#cfg-mod-phones').checked = data.block_phones !== false;
+        if ($('#cfg-mod-urls')) $('#cfg-mod-urls').checked = data.block_urls !== false;
+        if ($('#cfg-mod-social')) $('#cfg-mod-social').checked = data.block_social_media !== false;
+        if ($('#cfg-mod-action')) $('#cfg-mod-action').value = data.limit_action || 'block';
+        if ($('#cfg-mod-custom-keywords')) {
+          $('#cfg-mod-custom-keywords').value = (data.custom_blocked_keywords || []).join('\n');
+        }
+      }
+    } catch (err) {
+      console.warn('loadChatModerationSettings notice:', err);
+    }
+  }
+
+  async function handleChatModerationSubmit(e) {
+    e.preventDefault();
+    if (!supabase) return;
+
+    const blockPhones = $('#cfg-mod-phones').checked;
+    const blockUrls = $('#cfg-mod-urls').checked;
+    const blockSocial = $('#cfg-mod-social').checked;
+    const action = $('#cfg-mod-action').value;
+    const customKeywordsRaw = $('#cfg-mod-custom-keywords').value.trim();
+    const customKeywords = customKeywordsRaw
+      ? customKeywordsRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+      : [];
+
+    try {
+      const payload = {
+        id: 'default',
+        block_phones: blockPhones,
+        block_urls: blockUrls,
+        block_social_media: blockSocial,
+        limit_action: action,
+        custom_blocked_keywords: customKeywords,
+        updated_at: new Date().toISOString()
+      };
+      if (currentUser) payload.updated_by = currentUser.id;
+
+      const { error } = await supabase.from('chat_moderation_settings').upsert(payload);
+      if (error) throw error;
+
+      await logAdminAction(
+        'update_chat_moderation_settings',
+        'chat_moderation_settings',
+        'default',
+        null,
+        payload,
+        `تحديث قواعد منع بيانات التواصل (أرقام: ${blockPhones}, روابط: ${blockUrls}, سوشيال: ${blockSocial}, كلمات: ${customKeywords.length})`
+      );
+
+      showToast('تم حفظ قواعد الرقابة ومنع بيانات التواصل بنجاح وتفعيلها في الـ Backend', 'success');
+    } catch (err) {
+      showToast('فشل حفظ إعدادات الرقابة: ' + err.message, 'error');
+    }
+  }
+
+  async function loadChatModerationViolations() {
+    const tbody = $('#mod-violations-tbody');
+    if (!tbody || !supabase) return;
+
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">جاري التحميل...</td></tr>';
+
+    try {
+      const { data: violations, error } = await supabase
+        .from('chat_moderation_violations')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+
+      if (!violations || violations.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="5">لا توجد محاولات انتهاك مرصودة حتى الآن (جميع المحادثات ملتزمة بالقواعد)</td></tr>';
+        return;
+      }
+
+      // Collect user IDs for sender names
+      const senderIds = [...new Set(violations.map(v => v.sender_id).filter(Boolean))];
+      let userNamesMap = {};
+      if (senderIds.length > 0) {
+        try {
+          const { data: users } = await supabase
+            .from('profiles')
+            .select('id, full_name, phone_number')
+            .in('id', senderIds);
+          if (users) {
+            users.forEach(u => {
+              userNamesMap[u.id] = u.full_name || u.phone_number || 'مستخدم';
+            });
+          }
+        } catch (_) {}
+      }
+
+      tbody.innerHTML = '';
+      for (const v of violations) {
+        const typeBadge = v.violation_type === 'PHONE_NUMBER'
+          ? '<span class="badge badge-danger">رقم هاتف محمول/دولي</span>'
+          : v.violation_type === 'EXTERNAL_URL'
+            ? '<span class="badge badge-warning">رابط ويب خارجي</span>'
+            : v.violation_type === 'SOCIAL_MEDIA'
+              ? '<span class="badge badge-purple">حساب / شات سوشيال</span>'
+              : '<span class="badge badge-navy">كلمة محظورة</span>';
+
+        const senderName = userNamesMap[v.sender_id] || `<code>${escapeHtml((v.sender_id || '').substring(0, 8))}...</code>`;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${formatDate(v.created_at)}</td>
+          <td><strong>${senderName}</strong></td>
+          <td>${typeBadge}</td>
+          <td><code style="background:var(--border-subtle); padding:2px 6px; border-radius:4px;">${escapeHtml(v.matched_pattern || '—')}</code></td>
+          <td><span class="tag tag-pink">تم حظر الإرسال (Blocked)</span></td>
+        `;
+        tbody.appendChild(tr);
+      }
+    } catch (err) {
+      tbody.innerHTML = `<tr class="empty-row error-row"><td colspan="5">خطأ في تحميل سجل الانتهاكات: ${escapeHtml(err.message)}</td></tr>`;
+      console.warn('loadChatModerationViolations notice:', err);
     }
   }
 
@@ -2359,6 +2552,8 @@
     }
     if ($('#plan-form')) $('#plan-form').addEventListener('submit', handlePlanSubmit);
     if ($('#chat-limits-form')) $('#chat-limits-form').addEventListener('submit', handleChatLimitsSubmit);
+    if ($('#chat-moderation-form')) $('#chat-moderation-form').addEventListener('submit', handleChatModerationSubmit);
+    if ($('#refresh-mod-violations-btn')) $('#refresh-mod-violations-btn').addEventListener('click', loadChatModerationViolations);
 
     // Audit Log Search
     if ($('#audit-search')) {

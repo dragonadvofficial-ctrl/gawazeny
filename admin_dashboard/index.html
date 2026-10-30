@@ -576,8 +576,12 @@
               إدارة خطط الاشتراكات
             </button>
             <button type="button" class="settings-tab-btn" data-tab="tab-chat-limits">
-              <span class="material-icons-round">chat</span>
-              حدود رسائل الشات
+              <span class="material-icons-round">tune</span>
+              التحكم في حدود الرسائل
+            </button>
+            <button type="button" class="settings-tab-btn" data-tab="tab-chat-moderation">
+              <span class="material-icons-round">shield</span>
+              نظام منع بيانات التواصل (Moderation)
             </button>
           </div>
 
@@ -717,41 +721,89 @@
           <div id="tab-chat-limits" class="settings-tab-content">
             <form id="chat-limits-form">
               <div class="settings-cards-grid">
+                <!-- Free Users Limits Card -->
                 <div class="settings-panel-card panel-full">
                   <div class="panel-card-header">
                     <div class="badge-icon icon-navy">
                       <span class="material-icons-round">tune</span>
                     </div>
                     <div>
-                      <h4>حدود رسائل الشات للمستخدمين المجانيين</h4>
-                      <p class="panel-card-desc">تطبيق الحدود على الخادم (Backend) والتطبيق معاً لمنع التجاوز</p>
+                      <h4>حدود الرسائل للمستخدمين المجانيين (غير المشتركين)</h4>
+                      <p class="panel-card-desc">تحديد عدد الرسائل المسموح بها للمستخدمين المجانيين وفترة الاحتساب مع تطبيقها على الخادم (Backend) لمنع التجاوز</p>
                     </div>
                   </div>
                   <div class="panel-card-body">
                     <div class="form-row">
                       <div class="form-group">
-                        <label for="cfg-chat-daily-limit">الحد الأقصى اليومي (رسالة / يوم)</label>
+                        <label for="cfg-chat-period">آلية احتساب وفترة إعادة تعيين الحد</label>
+                        <select id="cfg-chat-period" class="settings-input">
+                          <option value="monthly">شهرياً (تتجدد مع بداية كل شهر ميلادي)</option>
+                          <option value="daily">يومياً (تتجدد كل 24 ساعة في منتصف الليل)</option>
+                          <option value="total">إجمالي دائم (حد أقصى تراكمي مدى الحياة حتى الاشتراك)</option>
+                        </select>
+                      </div>
+                      <div class="form-group">
+                        <label for="cfg-chat-limit-action">الإجراء المتبع عند استهلاك الحد المتاح</label>
+                        <select id="cfg-chat-limit-action" class="settings-input">
+                          <option value="block_and_prompt">حظر الإرسال وعرض نافذة الترقية والاشتراك (موصى به)</option>
+                          <option value="soft_warning">إظهار تنبيه فقط دون حظر الإرسال</option>
+                          <option value="block_only">حظر الإرسال بدون توجيه للاشتراك</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label for="cfg-chat-daily-limit">الحد اليومي (إذا تم اختيار الاحتساب اليومي)</label>
                         <input type="number" id="cfg-chat-daily-limit" min="0" max="1000" class="settings-input" required>
                       </div>
                       <div class="form-group">
-                        <label for="cfg-chat-monthly-limit">الحد الأقصى الشهري (رسالة / شهر)</label>
+                        <label for="cfg-chat-monthly-limit">الحد الشهري (إذا تم اختيار الاحتساب الشهري)</label>
                         <input type="number" id="cfg-chat-monthly-limit" min="0" max="10000" class="settings-input" required>
                       </div>
+                      <div class="form-group">
+                        <label for="cfg-chat-total-limit">الحد الإجمالي التراكمي (إذا تم اختيار الإجمالي)</label>
+                        <input type="number" id="cfg-chat-total-limit" min="0" max="50000" class="settings-input" placeholder="مثال: 50">
+                      </div>
                     </div>
-                    <div class="form-group">
-                      <label for="cfg-chat-limit-action">الإجراء المتبع عند بلوغ الحد</label>
-                      <select id="cfg-chat-limit-action" class="settings-input">
-                        <option value="block_and_prompt">حظر الإرسال وعرض نافذة الترقية (موصى به)</option>
-                        <option value="soft_warning">إظهار تحذير فقط دون الحظر</option>
-                        <option value="block_only">حظر فقط بدون نافذة ترقية</option>
-                      </select>
-                    </div>
-                    <div class="form-group form-check-group">
+                    <div class="form-group form-check-group" style="margin-top:10px;">
                       <label class="switch-label">
                         <input type="checkbox" id="cfg-chat-limits-enabled" class="switch-input">
                         <span class="switch-slider"></span>
-                        <span class="switch-text">تفعيل نظام تقييد رسائل الشات في التطبيق وقاعدة البيانات</span>
+                        <span class="switch-text"><strong>تفعيل نظام تقييد رسائل الشات على مستوى الخادم (Backend) والتطبيق</strong></span>
                       </label>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Subscribed Users Limits Summary & Quick Edit -->
+                <div class="settings-panel-card panel-full">
+                  <div class="panel-card-header">
+                    <div class="badge-icon icon-gold">
+                      <span class="material-icons-round">loyalty</span>
+                    </div>
+                    <div>
+                      <h4>حدود الرسائل للباقات المدفوعة (المشتركين)</h4>
+                      <p class="panel-card-desc">تخصيص رصيد الرسائل المسموح به لكل باقة اشتراك (أرقام محددة أو غير محدود)، يتم تطبيقها فوراً على المشتركين</p>
+                    </div>
+                  </div>
+                  <div class="panel-card-body">
+                    <div class="table-container" style="box-shadow:none; border:1px solid var(--border);">
+                      <table class="data-table" id="limits-plans-summary-table">
+                        <thead>
+                          <tr>
+                            <th>الباقة</th>
+                            <th>الاسم</th>
+                            <th>السعر</th>
+                            <th>مدة الباقة</th>
+                            <th>حد الرسائل المسموح</th>
+                            <th>فترة الاحتساب</th>
+                            <th>تعديل الحد</th>
+                          </tr>
+                        </thead>
+                        <tbody id="limits-plans-summary-tbody">
+                          <tr class="empty-row"><td colspan="7">جاري التحميل...</td></tr>
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
@@ -759,7 +811,122 @@
               <div class="settings-footer-actions">
                 <button type="submit" id="save-chat-limits-btn" class="btn btn-primary">
                   <span class="material-icons-round">save</span>
-                  حفظ إعدادات حدود رسائل الشات
+                  حفظ وتطبيق إعدادات حدود الرسائل
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Tab 4: Chat Moderation System (Anti-Contact Exchange) -->
+          <div id="tab-chat-moderation" class="settings-tab-content">
+            <form id="chat-moderation-form">
+              <div class="settings-cards-grid">
+                <!-- Moderation Rules Toggles -->
+                <div class="settings-panel-card panel-full">
+                  <div class="panel-card-header">
+                    <div class="badge-icon icon-purple">
+                      <span class="material-icons-round">security</span>
+                    </div>
+                    <div>
+                      <h4>قواعد منع تبادل بيانات التواصل الخارجي</h4>
+                      <p class="panel-card-desc">فحص ذكي للرسائل في الـ Backend قبل الإرسال لمنع تسريب أرقام الهواتف والروابط والحسابات الخارجية حفاظاً على خصوصية وأمان المشتركين</p>
+                    </div>
+                  </div>
+                  <div class="panel-card-body">
+                    <div class="form-row">
+                      <div class="form-group form-check-group" style="flex:1; background:var(--surface); padding:14px; border-radius:12px; border:1px solid var(--border);">
+                        <label class="switch-label">
+                          <input type="checkbox" id="cfg-mod-phones" class="switch-input" checked>
+                          <span class="switch-slider"></span>
+                          <span class="switch-text">
+                            <strong>منع مشاركة أرقام التليفونات</strong>
+                            <br><small style="color:var(--text-muted);">يكتشف الأرقام المصرية والدولية، مع أو بدون مسافات، شرطات، أقواس، والأرقام المكتوبة بالحروف والكلمات (مثل: زيرو عشره).</small>
+                          </span>
+                        </label>
+                      </div>
+
+                      <div class="form-group form-check-group" style="flex:1; background:var(--surface); padding:14px; border-radius:12px; border:1px solid var(--border);">
+                        <label class="switch-label">
+                          <input type="checkbox" id="cfg-mod-urls" class="switch-input" checked>
+                          <span class="switch-slider"></span>
+                          <span class="switch-text">
+                            <strong>منع مشاركة الروابط والمواقع (URLs)</strong>
+                            <br><small style="color:var(--text-muted);">يكتشف روابط http/https وwww وروابط السوشيال والمختصرات (wa.me, t.me, bit.ly) والنطاقات وصيغ التحايل (دوت كوم).</small>
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div class="form-row" style="margin-top:12px;">
+                      <div class="form-group form-check-group" style="flex:1; background:var(--surface); padding:14px; border-radius:12px; border:1px solid var(--border);">
+                        <label class="switch-label">
+                          <input type="checkbox" id="cfg-mod-social" class="switch-input" checked>
+                          <span class="switch-slider"></span>
+                          <span class="switch-text">
+                            <strong>منع تبادل حسابات التواصل واليوزرات</strong>
+                            <br><small style="color:var(--text-muted);">يكتشف طلبات تبادل الحسابات باللهجة المصرية (ابعتلي الفيسبوك، الواتس، انستا، هات رقمك، يوزر @handle، نكلم بعض بره).</small>
+                          </span>
+                        </label>
+                      </div>
+
+                      <div class="form-group" style="flex:1; background:var(--surface); padding:14px; border-radius:12px; border:1px solid var(--border);">
+                        <label for="cfg-mod-action"><strong>إجراء النظام عند رصد الانتهاك</strong></label>
+                        <select id="cfg-mod-action" class="settings-input" style="margin-top:6px;">
+                          <option value="block">حظر الرسالة فوراً ومنع حفظها في قاعدة البيانات مع إشعار المستخدم (موصى به)</option>
+                          <option value="flag_only">تسجيل محاولة الانتهاك في السجل دون حظر الإرسال (وضع المراقبة)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div class="form-group" style="margin-top:14px;">
+                      <label for="cfg-mod-custom-keywords"><strong>كلمات وعبارات محظورة مخصصة إضافية</strong> (اكتب كل كلمة أو عبارة في سطر جديد)</label>
+                      <textarea id="cfg-mod-custom-keywords" rows="3" class="filter-select" style="width:100%; resize:vertical;" placeholder="سناب شات&#10;تيك توك&#10;كلمني فون&#10;شات خاص"></textarea>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Chat Moderation Violations Log Panel -->
+                <div class="settings-panel-card panel-full">
+                  <div class="panel-card-header" style="justify-content:space-between;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                      <div class="badge-icon icon-red">
+                        <span class="material-icons-round">report_problem</span>
+                      </div>
+                      <div>
+                        <h4>سجل محاولات تبادل التواصل المرصودة (Violations Log)</h4>
+                        <p class="panel-card-desc">توثيق محاولات تجاوز القواعد تلقائياً مع نوع المخالفة والتوقيت دون تخزين محتوى حساس غير ضروري</p>
+                      </div>
+                    </div>
+                    <button type="button" id="refresh-mod-violations-btn" class="btn btn-outline btn-sm">
+                      <span class="material-icons-round">refresh</span>
+                      تحديث السجل
+                    </button>
+                  </div>
+                  <div class="panel-card-body">
+                    <div class="table-container" style="box-shadow:none; border:1px solid var(--border);">
+                      <table class="data-table" id="mod-violations-table">
+                        <thead>
+                          <tr>
+                            <th>التاريخ والوقت</th>
+                            <th>المستخدم (المرسل)</th>
+                            <th>نوع الانتهاك</th>
+                            <th>النمط المرصود</th>
+                            <th>الإجراء المنفذ</th>
+                          </tr>
+                        </thead>
+                        <tbody id="mod-violations-tbody">
+                          <tr class="empty-row"><td colspan="5">جاري التحميل...</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-footer-actions">
+                <button type="submit" id="save-chat-moderation-btn" class="btn btn-primary">
+                  <span class="material-icons-round">shield</span>
+                  حفظ وتفعيل إعدادات منع بيانات التواصل
                 </button>
               </div>
             </form>
@@ -987,6 +1154,14 @@
           <div class="form-group">
             <label for="plan-chat-limit">حد رسائل الشات (اتركه فارغاً لغير محدود)</label>
             <input type="number" id="plan-chat-limit" min="0" class="settings-input" placeholder="غير محدود">
+          </div>
+          <div class="form-group">
+            <label for="plan-chat-period">فترة احتساب الحد</label>
+            <select id="plan-chat-period" class="settings-input">
+              <option value="monthly">شهرياً (تتجدد شهرياً)</option>
+              <option value="daily">يومياً (تتجدد يومياً)</option>
+              <option value="per_subscription">خلال مدة الاشتراك كاملة</option>
+            </select>
           </div>
         </div>
         <div class="form-group">

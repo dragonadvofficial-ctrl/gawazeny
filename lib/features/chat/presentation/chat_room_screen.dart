@@ -816,22 +816,28 @@ class _ErrorStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLimitError = message.contains('استنفدت') || message.contains('الحد');
+    final isLimitError = message.contains('استنفدت') || message.contains('الحد الأقصى');
+    final isModerationError = message.contains('غير مسموح') || message.contains('أرقام الهواتف') || message.contains('الروابط') || message.contains('التواصل');
+
+    final color = isModerationError ? AppColors.warningOrange : AppColors.errorRed;
+    final icon = isModerationError ? Icons.shield_rounded : Icons.warning_rounded;
 
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
-      color: AppColors.errorRed.withValues(alpha: 0.1),
+      color: color.withValues(alpha: 0.12),
       child: Row(
         children: [
-          Icon(Icons.warning_rounded,
-              color: AppColors.errorRed, size: 16.sp),
+          Icon(icon, color: color, size: 18.sp),
           SizedBox(width: 8.w),
           Expanded(
             child: Text(
               message,
-              style: AppTextStyles.labelSmall
-                  .copyWith(color: AppColors.errorRed, fontWeight: FontWeight.w600),
+              style: AppTextStyles.labelSmall.copyWith(
+                color: color == AppColors.warningOrange ? AppColors.primaryNavy : color,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+              ),
             ),
           ),
           if (isLimitError) ...[

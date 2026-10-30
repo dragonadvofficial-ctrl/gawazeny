@@ -7,6 +7,7 @@ import '../../../core/preview/preview_mock_data.dart';
 import '../data/chat_limit_repository.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_message.dart';
+import '../domain/chat_moderation_service.dart';
 
 // ============================================================================
 // INBOX CONTROLLER — manages the list of conversations
@@ -236,21 +237,37 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
     });
   }
 
-  /// Sends a message with optimistic UI insertion and chat limit verification.
+  /// Sends a message with pre-flight chat moderation, rate limit validation, and optimistic UI.
   Future<void> sendMessage(String content) async {
     final convId = state.conversationId;
     final uid = _ref.read(currentUserProvider)?.id ??
         (kPreviewMode ? PreviewMockData.currentUserId : null);
-    if (convId == null || uid == null || content.trim().isEmpty) return;
+    final text = content.trim();
+    if (convId == null || uid == null || text.isEmpty) return;
 
-    // Check message rate limit before sending
+    // 1. PRE-FLIGHT CHAT MODERATION CHECK (Phone, Links, Social Media)
+    final moderation = ChatModerationService.check(text);
+    if (!moderation.isAllowed) {
+      developer.log('Chat moderation blocked message: ${moderation.matchedPattern}');
+      state = state.copyWith(
+        errorMessage: moderation.message ??
+            'مشاركة أرقام الهواتف أو الروابط أو حسابات التواصل غير مسموح بها داخل المحادثة.',
+      );
+      return;
+    }
+
+    // 2. CHECK MESSAGE RATE LIMIT
     if (!kPreviewMode) {
       final limitRepo = _ref.read(chatLimitRepositoryProvider);
       final limitStatus = await limitRepo.checkMessageLimit();
       if (!limitStatus.allowed) {
-        state = state.copyWith(
-          errorMessage: 'لقد استنفدت رصيد رسائل الشات (${limitStatus.sentMonth}/${limitStatus.effectiveLimit ?? 0}). يرجى ترقية اشتراكك للاستمرار في المراسلة.',
-        );
+        final periodText = limitStatus.periodLabelArabic;
+        final countText = '${limitStatus.sentCount}/${limitStatus.effectiveLimit ?? 0}';
+        final promptMsg = limitStatus.userType == 'subscribed'
+            ? 'لقد استنفدت رصيد رسائل باقتك ($countText رسالة $periodText). يمكنك ترقية باقتك للاستمرار في المراسلة.'
+            : 'لقد استنفدت الحد المسموح به للرسائل ($countText رسالة $periodText). يرجى الاشتراك في إحدى باقاتنا للاستمرار في المراسلة.';
+
+        state = state.copyWith(errorMessage: promptMsg);
         return;
       }
     }
@@ -259,7 +276,7 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
     final pending = ChatMessage.pending(
       conversationId: convId,
       senderId: uid,
-      content: content.trim(),
+      content: text,
     );
     state = state.copyWith(
       messages: [...state.messages, pending],
@@ -272,7 +289,7 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
         id: 'msg-preview-${DateTime.now().millisecondsSinceEpoch}',
         conversationId: convId,
         senderId: uid,
-        content: content.trim(),
+        content: text,
         isRead: false,
         createdAt: DateTime.now(),
         status: MessageStatus.sent,
@@ -288,7 +305,7 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
     try {
       final confirmed = await _repository.sendMessage(
         conversationId: convId,
-        content: content.trim(),
+        content: text,
       );
 
       // Replace pending with confirmed
@@ -300,15 +317,36 @@ class ChatRoomController extends StateNotifier<ChatRoomState> {
       state = state.copyWith(messages: updated, isSending: false);
     } catch (e) {
       developer.log('sendMessage error: $e');
-      if (e.toString().contains('CHAT_LIMIT_EXCEEDED')) {
+      final errStr = e.toString();
+
+      // Check backend moderation exception
+      if (errStr.contains('CHAT_MODERATION_VIOLATION')) {
         final updated = state.messages.where((m) => m.id != pending.id).toList();
+        final rawMsg = errStr.replaceAll(RegExp(r'.*CHAT_MODERATION_VIOLATION:\s*'), '').trim();
         state = state.copyWith(
           messages: updated,
           isSending: false,
-          errorMessage: 'تم استنفاد الحد الأقصى للرسائل المسموح بها لخطة اشتراكك الحالية. يرجى الترقية.',
+          errorMessage: rawMsg.isNotEmpty
+              ? rawMsg
+              : 'مشاركة أرقام الهواتف أو الروابط أو حسابات التواصل الخارجي غير مسموح بها داخل المحادثة.',
         );
         return;
       }
+
+      // Check backend limit exception
+      if (errStr.contains('CHAT_LIMIT_EXCEEDED')) {
+        final updated = state.messages.where((m) => m.id != pending.id).toList();
+        final rawMsg = errStr.replaceAll(RegExp(r'.*CHAT_LIMIT_EXCEEDED:\s*'), '').trim();
+        state = state.copyWith(
+          messages: updated,
+          isSending: false,
+          errorMessage: rawMsg.isNotEmpty
+              ? rawMsg
+              : 'تم استنفاد الحد الأقصى للرسائل المسموح بها لخطة اشتراكك الحالية. يرجى الترقية.',
+        );
+        return;
+      }
+
       // Mark pending as failed
       final updated = state.messages.map((m) {
         if (m.id == pending.id) {
