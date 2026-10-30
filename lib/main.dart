@@ -11,6 +11,7 @@ import 'core/localization/app_locale_controller.dart';
 import 'core/localization/app_translations.dart';
 import 'core/network/auth_gate.dart';
 import 'core/preview/preview_config.dart';
+import 'core/security/secure_local_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'features/chat/presentation/chat_inbox_screen.dart';
 import 'features/likes_matches/presentation/matches_screen.dart';
@@ -21,12 +22,15 @@ import 'features/profile/presentation/profile_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Supabase reading from string constants
+  // Initialize Supabase reading from string constants with SecureLocalStorage (C10)
   try {
     await Supabase.initialize(
       url: SupabaseConstants.supabaseUrl,
       // ignore: deprecated_member_use
       anonKey: SupabaseConstants.supabaseAnonKey,
+      authOptions: FlutterAuthClientOptions(
+        localStorage: const SecureLocalStorage(),
+      ),
       debug: false,
     );
   } catch (error, stackTrace) {

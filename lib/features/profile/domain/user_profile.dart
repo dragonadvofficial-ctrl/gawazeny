@@ -252,7 +252,10 @@ class UserProfile {
       id: map['id'] as String,
       fullName: map['full_name'] as String,
       gender: GenderType.fromDbValue(map['gender'] as String),
-      birthDate: DateTime.parse(map['birth_date'] as String),
+      birthDate: map['birth_date'] != null
+          ? (DateTime.tryParse(map['birth_date'].toString()) ??
+              DateTime(DateTime.now().year - ((map['age'] as num?)?.toInt() ?? 25), 1, 1))
+          : DateTime(DateTime.now().year - ((map['age'] as num?)?.toInt() ?? 25), 1, 1),
       age: map['age'] != null ? (map['age'] as num).toInt() : null,
       nationality: map['nationality'] as String,
       residenceCity: map['residence_city'] as String,

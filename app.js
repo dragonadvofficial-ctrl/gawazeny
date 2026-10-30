@@ -8,22 +8,29 @@
   'use strict';
 
   // --------------------------------------------------------------------------
+  // Security: HTML Escaping Helper (Defense-in-depth against XSS)
+  // --------------------------------------------------------------------------
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"'`]/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;',
+      '"': '&quot;', "'": '&#39;', '`': '&#96;'
+    }[c]));
+  }
+
+  // --------------------------------------------------------------------------
   // Configuration & Supabase Initialization
   // --------------------------------------------------------------------------
   const DEFAULT_SUPABASE_URL = 'https://npcqnrucmwzompwmvztw.supabase.co';
   const DEFAULT_SUPABASE_KEY = 'sb_publishable_c-wIMq0t09mTU4Uhp4lafg_zI-ZjgwL';
 
-  // Purge legacy placeholder credentials if previously cached in localStorage
-  if (localStorage.getItem('gawezeny_supabase_url')?.includes('placeholder')) {
-    localStorage.removeItem('gawezeny_supabase_url');
-  }
-  if (localStorage.getItem('gawezeny_supabase_anon_key')?.includes('placeholder')) {
-    localStorage.removeItem('gawezeny_supabase_anon_key');
-  }
-
+  // Purge legacy placeholder credentials
+  localStorage.removeItem('gawezeny_supabase_url');
+  localStorage.removeItem('gawezeny_supabase_anon_key');
   localStorage.removeItem('gawezeny_demo_mode');
-  let currentSupabaseUrl = localStorage.getItem('gawezeny_supabase_url') || (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL ? SUPABASE_URL : DEFAULT_SUPABASE_URL);
-  let currentSupabaseKey = localStorage.getItem('gawezeny_supabase_anon_key') || (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY ? SUPABASE_ANON_KEY : DEFAULT_SUPABASE_KEY);
+
+  // Hardened: In production use config constants directly, no hostile runtime localStorage override
+  const currentSupabaseUrl = (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL) ? SUPABASE_URL : DEFAULT_SUPABASE_URL;
+  const currentSupabaseKey = (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY) ? SUPABASE_ANON_KEY : DEFAULT_SUPABASE_KEY;
   
   // REAL DATABASE MODE ONLY - Mock / Demo data is strictly disabled
   const isDemoMode = false;
@@ -363,10 +370,13 @@
 
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.innerHTML = `
-      <span class="material-icons-round">${icons[type] || 'info'}</span>
-      <span>${message}</span>
-    `;
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'material-icons-round';
+    iconSpan.textContent = icons[type] || 'info';
+    const textSpan = document.createElement('span');
+    textSpan.textContent = String(message ?? '');
+    toast.appendChild(iconSpan);
+    toast.appendChild(textSpan);
     container.appendChild(toast);
 
     setTimeout(() => {
@@ -480,9 +490,10 @@
   }
 
   function renderUserMini(profile, photoUrl) {
-    const name = profile?.full_name || 'مستخدم محذوف';
-    const avatar = photoUrl
-      ? `<img class="user-mini-avatar" src="${photoUrl}" alt="${name}">`
+    const name = escapeHtml(profile?.full_name || 'مستخدم محذوف');
+    const isSafePhoto = photoUrl && (photoUrl.startsWith('https://') || photoUrl.startsWith('http://'));
+    const avatar = isSafePhoto
+      ? `<img class="user-mini-avatar" src="${escapeHtml(photoUrl)}" alt="${name}">`
       : `<div class="user-mini-avatar-placeholder"><span class="material-icons-round">person</span></div>`;
     return `<div class="user-mini">${avatar}<span class="user-mini-name">${name}</span></div>`;
   }
@@ -593,9 +604,7 @@
       if (!adminData) {
         await supabase.auth.signOut();
         const err = new Error(
-          `تم تسجيل الدخول بنجاح بحساب (${email})، ولكن هذا الحساب ليس مسجلاً في جدول المشرفين (admin_users).\n` +
-          `قم بإضافته عبر تنفيذ هذا الاستعلام في Supabase SQL Editor:\n` +
-          `INSERT INTO admin_users (id, email, display_name, role) VALUES ('${authData.user.id}', '${email}', 'مدير النظام', 'admin');`
+          `تم تسجيل الدخول بنجاح، ولكن هذا الحساب ليس لديه صلاحيات إشراف مسجلة في جدول المشرفين (admin_users). يرجى مراجعة مدير النظام لمنح الصلاحيات.`
         );
         err.user_id = authData.user.id;
         throw err;
@@ -886,20 +895,20 @@
           <tr id="report-row-${report.id}">
             <td>${renderUserMini(reporter, reporterPhoto)}</td>
             <td>${renderUserMini(reported, reportedPhoto)}</td>
-            <td><strong>${report.reason || '—'}</strong></td>
-            <td><span class="truncate" style="max-width:280px; display:inline-block;">${report.details || '—'}</span></td>
+            <td><strong>${escapeHtml(report.reason || '—')}</strong></td>
+            <td><span class="truncate" style="max-width:280px; display:inline-block;">${escapeHtml(report.details || '—')}</span></td>
             <td>${formatDateTime(report.created_at)}</td>
             <td>${reportStatusBadge(report.status)}</td>
             <td>
               ${isPending ? `
                 <div class="action-btns">
-                  <button class="action-btn action-btn-block" onclick="adminActions.blockUser('${report.reported_user_id}', '${report.id}')" title="حظر الحساب">
+                  <button class="action-btn action-btn-block" data-action="block-user" data-user-id="${escapeHtml(report.reported_user_id)}" data-report-id="${escapeHtml(report.id)}" title="حظر الحساب">
                     <span class="material-icons-round">block</span> حظر
                   </button>
-                  <button class="action-btn action-btn-delete" onclick="adminActions.deleteAccount('${report.reported_user_id}', '${report.id}')" title="حذف الحساب">
+                  <button class="action-btn action-btn-delete" data-action="delete-account" data-user-id="${escapeHtml(report.reported_user_id)}" data-report-id="${escapeHtml(report.id)}" title="حذف الحساب">
                     <span class="material-icons-round">delete</span> حذف
                   </button>
-                  <button class="action-btn action-btn-dismiss" onclick="adminActions.dismissReport('${report.id}')" title="رفض البلاغ">
+                  <button class="action-btn action-btn-dismiss" data-action="dismiss-report" data-report-id="${escapeHtml(report.id)}" title="رفض البلاغ">
                     <span class="material-icons-round">close</span> رفض
                   </button>
                 </div>
@@ -1073,45 +1082,43 @@
       });
       const enrichedVerifications = await Promise.all(profilePromises);
 
-      let html = '';
-      enrichedVerifications.forEach((v, idx) => {
-        const isPending = ['PENDING', 'MANUAL_REVIEW'].includes(v.status);
-        const idCardUrl = v.id_card_image_url || '';
-        const selfieUrl = v.selfie_image_url || '';
+        const safeName = escapeHtml(v.profile?.full_name || 'مستخدم (معرف: ' + v.user_id.substring(0, 8) + '...)');
+        const isSafeIdCard = idCardUrl && (idCardUrl.startsWith('https://') || idCardUrl.startsWith('http://'));
+        const isSafeSelfie = selfieUrl && (selfieUrl.startsWith('https://') || selfieUrl.startsWith('http://'));
 
         html += `
           <div class="verification-card" id="verif-card-${v.id}" style="animation-delay: ${idx * 0.05}s">
             <div class="verification-card-header">
               <div class="verification-user-info">
-                <span class="user-name"><strong>${v.profile?.full_name || 'مستخدم (معرف: ' + v.user_id.substring(0, 8) + '...)'}</strong></span>
+                <span class="user-name"><strong>${safeName}</strong></span>
                 <span class="user-date">${formatDateTime(v.created_at)}</span>
               </div>
               ${verificationStatusBadge(v.status)}
             </div>
             <div class="verification-images">
               <div class="image-panel">
-                ${idCardUrl
-                  ? `<img src="${idCardUrl}" alt="بطاقة الهوية الوطنية" loading="lazy" onclick="window.open('${idCardUrl}', '_blank')" style="cursor:zoom-in;"><span class="image-label">بطاقة الرقم القومي (انقر للتكبير)</span>`
+                ${isSafeIdCard
+                  ? `<img src="${escapeHtml(idCardUrl)}" alt="بطاقة الهوية الوطنية" loading="lazy" class="verif-preview-img" data-url="${escapeHtml(idCardUrl)}" style="cursor:zoom-in;"><span class="image-label">بطاقة الرقم القومي (انقر للتكبير)</span>`
                   : '<div class="no-image"><span class="material-icons-round" style="font-size:32px;display:block;margin-bottom:4px">badge</span>لا توجد صورة</div>'
                 }
               </div>
               <div class="image-panel">
-                ${selfieUrl
-                  ? `<img src="${selfieUrl}" alt="الصورة الشخصية" loading="lazy" onclick="window.open('${selfieUrl}', '_blank')" style="cursor:zoom-in;"><span class="image-label">صورة السيلفي المباشرة (انقر للتكبير)</span>`
+                ${isSafeSelfie
+                  ? `<img src="${escapeHtml(selfieUrl)}" alt="الصورة الشخصية" loading="lazy" class="verif-preview-img" data-url="${escapeHtml(selfieUrl)}" style="cursor:zoom-in;"><span class="image-label">صورة السيلفي المباشرة (انقر للتكبير)</span>`
                   : '<div class="no-image"><span class="material-icons-round" style="font-size:32px;display:block;margin-bottom:4px">face</span>لا توجد صورة</div>'
                 }
               </div>
             </div>
             <div class="verification-card-footer">
               ${isPending ? `
-                <button class="action-btn action-btn-approve" onclick="adminActions.approveVerification('${v.id}')">
+                <button class="action-btn action-btn-approve" data-action="approve-verification" data-verif-id="${escapeHtml(v.id)}">
                   <span class="material-icons-round">check</span> قبول وتوثيق
                 </button>
-                <button class="action-btn action-btn-reject" onclick="adminActions.rejectVerification('${v.id}')">
+                <button class="action-btn action-btn-reject" data-action="reject-verification" data-verif-id="${escapeHtml(v.id)}">
                   <span class="material-icons-round">close</span> رفض الطلب
                 </button>
               ` : `<span class="badge ${v.status === 'VERIFIED' ? 'badge-success' : 'badge-danger'}">تم الحسم: ${VERIFICATION_STATUS_LABELS[v.status] || v.status}</span>`}
-              ${v.rejection_reason ? `<div class="rejection-reason-notice" style="color:#dc3545; font-size:12px; margin-top:8px; width:100%;"><span class="material-icons-round" style="font-size:14px; vertical-align:middle;">error_outline</span> سبب الرفض: <strong>${v.rejection_reason}</strong></div>` : ''}
+              ${v.rejection_reason ? `<div class="rejection-reason-notice" style="color:#dc3545; font-size:12px; margin-top:8px; width:100%;"><span class="material-icons-round" style="font-size:14px; vertical-align:middle;">error_outline</span> سبب الرفض: <strong>${escapeHtml(v.rejection_reason)}</strong></div>` : ''}
             </div>
           </div>
         `;
@@ -1178,20 +1185,20 @@
       users.forEach((u) => {
         html += `
           <tr id="user-row-${u.id}">
-            <td><strong>${u.full_name}</strong></td>
-            <td>${GENDER_LABELS[u.gender] || u.gender}</td>
+            <td><strong>${escapeHtml(u.full_name)}</strong></td>
+            <td>${GENDER_LABELS[u.gender] || escapeHtml(u.gender)}</td>
             <td>${u.age ?? '—'}</td>
-            <td>${u.residence_city || '—'}</td>
-            <td>${MARITAL_STATUS_LABELS[u.marital_status] || u.marital_status}</td>
+            <td>${escapeHtml(u.residence_city || '—')}</td>
+            <td>${MARITAL_STATUS_LABELS[u.marital_status] || escapeHtml(u.marital_status)}</td>
             <td>${verificationStatusBadge(u.verification_status)}</td>
             <td>${subscriptionStatusBadge(u.subscription_status)}</td>
             <td>${formatDate(u.created_at)}</td>
             <td>
               <div class="action-btns">
-                <button class="action-btn action-btn-block" onclick="adminActions.blockUser('${u.id}')" title="حظر">
+                <button class="action-btn action-btn-block" data-action="block-user" data-user-id="${escapeHtml(u.id)}" title="حظر">
                   <span class="material-icons-round">block</span>
                 </button>
-                <button class="action-btn action-btn-delete" onclick="adminActions.deleteAccount('${u.id}')" title="حذف">
+                <button class="action-btn action-btn-delete" data-action="delete-account" data-user-id="${escapeHtml(u.id)}" title="حذف">
                   <span class="material-icons-round">delete</span>
                 </button>
               </div>
@@ -1208,9 +1215,9 @@
   }
 
   // ==========================================================================
-  // ADMIN ACTIONS (Exposed globally for onclick handlers)
+  // ADMIN ACTIONS (Internal handlers wired via secure event delegation)
   // ==========================================================================
-  window.adminActions = {
+  const adminActions = {
     async blockUser(userId, reportId = null) {
       const confirmed = await showConfirm(
         'حظر المستخدم',
@@ -1890,9 +1897,9 @@
   }
 
   function handleTestDeepLinks() {
-    const voda = $('#cfg-voda-number').value.trim() || '01099887766';
-    const insta = $('#cfg-insta-account').value.trim() || 'gawezeny@instapay';
-    const wa = $('#cfg-support-whatsapp').value.trim() || '01099887766';
+    const voda = $('#cfg-voda-number').value.trim() || '01000000000';
+    const insta = $('#cfg-insta-account').value.trim() || 'user@instapay';
+    const wa = $('#cfg-support-whatsapp').value.trim() || '01000000000';
 
     const sampleAmount = 200;
     const ussd = `*9*7*${voda}*${sampleAmount}#`;
@@ -2562,6 +2569,33 @@
         auditDebounceTimer = setTimeout(loadAuditLog, 300);
       });
     }
+
+    // Security: Global Event Delegation (Replaces inline onclick attributes)
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (btn) {
+        const action = btn.dataset.action;
+        if (action === 'block-user') {
+          adminActions.blockUser(btn.dataset.userId, btn.dataset.reportId);
+        } else if (action === 'delete-account') {
+          adminActions.deleteAccount(btn.dataset.userId, btn.dataset.reportId);
+        } else if (action === 'dismiss-report') {
+          adminActions.dismissReport(btn.dataset.reportId);
+        } else if (action === 'approve-verification') {
+          adminActions.approveVerification(btn.dataset.verifId);
+        } else if (action === 'reject-verification') {
+          adminActions.rejectVerification(btn.dataset.verifId);
+        }
+      }
+
+      const img = e.target.closest('img.verif-preview-img');
+      if (img && img.dataset.url) {
+        const u = img.dataset.url;
+        if (u.startsWith('https://') || u.startsWith('http://')) {
+          window.open(u, '_blank', 'noopener,noreferrer');
+        }
+      }
+    });
   }
 
   // Sidebar overlay for mobile

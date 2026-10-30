@@ -1,5 +1,6 @@
+// ignore_for_file: avoid_print
 import 'dart:io';
-import '../lib/features/chat/domain/chat_moderation_service.dart';
+import 'package:gawezeny/features/chat/domain/chat_moderation_service.dart';
 
 void main() {
   print('--- Testing Chat Moderation Rules ---');

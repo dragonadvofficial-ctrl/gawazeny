@@ -43,3 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Security & Signing (Do not commit signing keys or symbols)
+android/key.properties
+*.jks
+*.keystore
+build/symbols/
+env.json

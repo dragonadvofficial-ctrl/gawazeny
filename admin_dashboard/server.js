@@ -20,10 +20,10 @@ const MIME = {
 
 const server = http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0];
-  let filePath = path.join(DIR, urlPath);
+  let filePath = path.resolve(DIR, '.' + path.sep + urlPath);
 
-  // Security: prevent directory traversal
-  if (!filePath.startsWith(DIR)) {
+  // Security: prevent directory traversal with path.resolve check
+  if (!filePath.startsWith(DIR + path.sep) && filePath !== DIR) {
     res.writeHead(403, { 'Content-Type': 'text/plain' });
     res.end('Forbidden');
     return;
@@ -49,8 +49,9 @@ const server = http.createServer((req, res) => {
       res.end(data);
     });
   } catch (err) {
+    console.error('Server error:', err);
     res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Internal Server Error: ' + err.message);
+    res.end('Internal Server Error');
   }
 });
 
