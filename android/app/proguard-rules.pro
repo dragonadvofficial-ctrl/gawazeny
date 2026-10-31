@@ -15,3 +15,6 @@
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
+
+# Play Core (Flutter deferred components - مش مستخدمة في التطبيق)
+-dontwarn com.google.android.play.core.**
